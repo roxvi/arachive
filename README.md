@@ -47,11 +47,11 @@ Brightness API reference: [Hammerspoon brightness implementation](https://github
 
 ## Welcome tour
 
-First launch opens a five-step desktop takeover: menu reveal, safe shortcut practice, a lid-dimming simulation, optional real hotspot setup, and a menu-bar handoff with 28 arrows aimed at the actual icon. **Replay Welcome Tour…** opens it again without resetting your settings. Skip or Escape dismisses it and records completion. Continue never requires a demo interaction or hotspot setup.
+First launch opens a five-step desktop takeover: menu reveal, safe shortcut practice, a lid-dimming simulation, optional real hotspot setup, and a menu-bar handoff with a subtle highlight around the actual icon. **Replay Welcome Tour…** opens it again without resetting your settings. Skip or Escape dismisses it and records completion. Continue never requires a demo interaction or hotspot setup.
 
 During the tour, the global shortcut only changes the isolated preview on its practice step; it never changes the system sleep setting. The interactive preview uses the same menu builder as the real status menu. Hotspot setup opens the real settings window above the tour. Closing settings preserves the previous configuration and permits retry/skip. Save errors remain in the settings window; successful save enables automatic fallback and returns to the tour.
 
-The overlay follows Spaces on the chosen display without creating a fullscreen Space. Reduced Motion disables directional animations. On small displays, content stacks and scrolls while navigation stays reachable. If the status icon cannot be located, the finale provides a reveal-menu-bar hint instead of pointing at an invented location.
+The overlay follows Spaces on the chosen display without creating a fullscreen Space. Steps slide horizontally on a shared track without fading. Reduced Motion switches pages immediately. On small displays, content stacks and scrolls while navigation stays reachable. If the status icon cannot be located, the finale provides a reveal-menu-bar hint instead of pointing at an invented location.
 
 Onboarding state tests cover navigation boundaries, Back direction, demo isolation, and setup/finish callbacks. Native visual layout, VoiceOver/keyboard traversal, Spaces, first-launch persistence, and actual setup/handoff still require runtime verification.
 

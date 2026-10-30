@@ -174,8 +174,7 @@ private struct OnboardingView: View {
                 Color.black.opacity(0.77)
                 RadialGradient(colors: [cyan.opacity(0.13), .clear], center: .trailing, startRadius: 0, endRadius: 700)
                 if model.step == 4, let target = model.target {
-                    ArrowSwarm(target: target).allowsHitTesting(false).accessibilityHidden(true)
-                        .transition(.opacity)
+                    MenuBarPointer(target: target).allowsHitTesting(false).accessibilityHidden(true)
                 }
                 VStack(spacing: 20) {
                     HStack {
@@ -184,12 +183,17 @@ private struct OnboardingView: View {
                         Text(String(format: "%02d / 05", model.step + 1)).font(.system(size: 13, design: .monospaced)).foregroundStyle(.white.opacity(0.65))
                         Button("Skip") { model.finish?() }.buttonStyle(.plain).padding(.leading, 20)
                     }.padding(.top, 24)
-                    ZStack {
-                        TourPage(model: model, step: model.step)
-                            .id(model.step)
-                            .transition(pageTransition)
+                    GeometryReader { viewport in
+                        HStack(spacing: 0) {
+                            ForEach(0..<5) { step in
+                                TourPage(model: model, step: step)
+                                    .frame(width: viewport.size.width, height: viewport.size.height)
+                            }
+                        }
+                        .offset(x: -CGFloat(model.step) * viewport.size.width)
+                        .animation(reduceMotion ? nil : .timingCurve(0.22, 1, 0.36, 1, duration: 0.5), value: model.step)
+                        .frame(width: viewport.size.width, alignment: .leading)
                     }
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
                     .clipped()
                     HStack {
                         Button("Back") { advance(-1) }.disabled(model.step == 0).buttonStyle(.plain)
@@ -209,21 +213,10 @@ private struct OnboardingView: View {
         }
     }
 
-    private func advance(_ delta: Int) {
-        withAnimation(reduceMotion ? .easeOut(duration: 0.14) : .spring(response: 0.52, dampingFraction: 0.96)) { model.move(delta) }
-    }
-
-    private var pageTransition: AnyTransition {
-        guard !reduceMotion else { return .opacity }
-        let direction: CGFloat = model.forward ? 1 : -1
-        return .asymmetric(
-            insertion: .modifier(active: PageMotion(offset: 36 * direction, opacity: 0, scale: 0.985), identity: PageMotion()),
-            removal: .modifier(active: PageMotion(offset: -24 * direction, opacity: 0, scale: 0.99), identity: PageMotion())
-        )
-    }
+    private func advance(_ delta: Int) { model.move(delta) }
 }
 
-// Each outgoing page keeps its own step until its transition finishes.
+// Pages share one sliding track; each retains its scroll position and content.
 private struct TourPage: View {
     @ObservedObject var model: OnboardingModel
     let step: Int
@@ -235,7 +228,7 @@ private struct TourPage: View {
         "It’s an important setting, so we made the keybind hard to accidentally type 😉\n\nControl + Option + Command + K toggles keep awake. Approve administrator access once below. After that, toggles need no password.",
         "With keep awake enabled, closing the lid brings supported displays to zero brightness. Open it again and your previous brightness returns.\n\nArchaive doesn’t request screen sleep or lock. Your Mac’s other lock settings still apply. Keyboard lighting is unchanged.",
         "Set your hotspot’s exact Wi-Fi name, emoji included. Archaive waits for Wi-Fi to drop, then tries your hotspot. Keep it nearby and discoverable.\n\nUse Custom Password is useful for a non-Apple hotspot, or whenever macOS normally asks for a password. If macOS already remembers it, leave the toggle off.",
-        "The menu bar. That’s the whole app.\n\nMoon means normal sleep. Sun means keep awake. Click it whenever you need us.\n\nWe added a few arrows. Just to be subtle."
+        "The menu bar. That’s the whole app.\n\nMoon means normal sleep. Sun means keep awake. Click it whenever you need us."
     ]
 
     var body: some View {
@@ -253,13 +246,14 @@ private struct TourPage: View {
                 .frame(maxWidth: .infinity, minHeight: geometry.size.height)
             }
         }
+        .disabled(step != model.step)
         .allowsHitTesting(step == model.step)
         .accessibilityHidden(step != model.step)
     }
 
     private var copy: some View {
         VStack(alignment: .leading, spacing: 22) {
-            Text(["MEET ARCHAIVE", "TRY IT SAFELY", "FULL DIM, STILL AWAKE", "YOUR FIRST SETUP", "IMPOSSIBLE TO MISS"][step])
+            Text(["MEET ARCHAIVE", "TRY IT SAFELY", "FULL DIM, STILL AWAKE", "YOUR FIRST SETUP", "ALWAYS WITHIN REACH"][step])
                 .font(.system(size: 12, weight: .medium, design: .monospaced)).foregroundStyle(cyan)
             Text(titles[step]).font(.system(size: 44, weight: .bold, design: .rounded)).fixedSize(horizontal: false, vertical: true)
             Text(bodies[step]).font(.system(size: 16)).foregroundStyle(.white.opacity(0.78)).lineSpacing(5).fixedSize(horizontal: false, vertical: true)
@@ -328,7 +322,7 @@ private struct TourPage: View {
                     Image(systemName: "moon.fill")
                     Image(systemName: "sun.max.fill").foregroundStyle(cyan)
                 }.font(.system(size: 54))
-                Text("Tiny icon.\nExcessive directions.").font(.system(size: 29, weight: .bold, design: .rounded)).multilineTextAlignment(.center)
+                Text("Right here.\nWhenever you need it.").font(.system(size: 29, weight: .bold, design: .rounded)).multilineTextAlignment(.center)
                 if model.target == nil {
                     Text("Reveal the menu bar at the top of this screen to find Archaive. It may be hidden by your notch or menu bar manager.").font(.system(size: 14)).multilineTextAlignment(.center)
                     Button("Find the icon again") { model.locate?() }.buttonStyle(.plain)
@@ -338,19 +332,6 @@ private struct TourPage: View {
         }.padding(28).frame(maxWidth: .infinity)
             .background(.white.opacity(0.045), in: RoundedRectangle(cornerRadius: 28))
             .overlay(RoundedRectangle(cornerRadius: 28).stroke(.white.opacity(0.12), lineWidth: 1))
-    }
-}
-
-private struct PageMotion: AnimatableModifier {
-    var offset: CGFloat = 0
-    var opacity: Double = 1
-    var scale: CGFloat = 1
-    var animatableData: AnimatablePair<CGFloat, AnimatablePair<Double, CGFloat>> {
-        get { AnimatablePair(offset, AnimatablePair(opacity, scale)) }
-        set { offset = newValue.first; opacity = newValue.second.first; scale = newValue.second.second }
-    }
-    func body(content: Content) -> some View {
-        content.opacity(opacity).scaleEffect(scale).offset(x: offset)
     }
 }
 
@@ -365,43 +346,17 @@ private struct TourButton: ButtonStyle {
     }
 }
 
-private struct ArrowSwarm: View {
+private struct MenuBarPointer: View {
     let target: CGPoint
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    @State private var progress: CGFloat = 0
-    var body: some View {
-        ArrowDrawing(target: target, progress: reduceMotion ? 1 : progress)
-            .onAppear {
-                withAnimation(reduceMotion ? nil : .easeOut(duration: 0.75).delay(0.1)) { progress = 1 }
-            }
-    }
-}
 
-private struct ArrowDrawing: View, Animatable {
-    let target: CGPoint
-    var progress: CGFloat
-    var animatableData: CGFloat {
-        get { progress }
-        set { progress = newValue }
-    }
     var body: some View {
-        Canvas { context, size in
-            for index in 0..<28 {
-                let fraction = CGFloat(index) / 27
-                let start = CGPoint(x: 24 + fraction * (size.width - 48), y: 65 + CGFloat(index % 5) * 20)
-                let end = CGPoint(x: target.x, y: max(12, target.y + 12))
-                let bend = CGPoint(x: start.x * 0.6 + end.x * 0.4, y: start.y + 40 + CGFloat(index % 3) * 16)
-                var path = Path()
-                path.move(to: start)
-                path.addQuadCurve(to: end, control: bend)
-                let angle = atan2(end.y - bend.y, end.x - bend.x)
-                for offset in [-0.48, 0.48] {
-                    path.move(to: end)
-                    path.addLine(to: CGPoint(x: end.x - cos(angle + offset) * 13, y: end.y - sin(angle + offset) * 13))
-                }
-                let reveal = min(1, max(0, progress * 1.35 - fraction * 0.35))
-                context.stroke(path.trimmedPath(from: 0, to: reveal), with: .color(index.isMultiple(of: 3) ? .white.opacity(0.65) : .cyan.opacity(0.55)), style: StrokeStyle(lineWidth: index.isMultiple(of: 4) ? 2.5 : 1.2, lineCap: .round))
-            }
+        Canvas { context, _ in
+            let ring = CGRect(x: target.x - 17, y: target.y - 13, width: 34, height: 26)
+            context.stroke(Path(roundedRect: ring, cornerRadius: 9), with: .color(.cyan.opacity(0.65)), lineWidth: 1.5)
+            var stem = Path()
+            stem.move(to: CGPoint(x: target.x, y: target.y + 19))
+            stem.addLine(to: CGPoint(x: target.x, y: target.y + 49))
+            context.stroke(stem, with: .color(.white.opacity(0.45)), style: StrokeStyle(lineWidth: 1, lineCap: .round))
         }
     }
 }
