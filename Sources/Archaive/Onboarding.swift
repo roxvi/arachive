@@ -1,5 +1,6 @@
 import AppKit
 import SwiftUI
+import QuartzCore
 
 final class OnboardingModel: NSObject, ObservableObject {
     @Published var step = 0
@@ -85,7 +86,8 @@ final class OnboardingController {
         panel.makeKeyAndOrderFront(nil)
         NSApp.activate(ignoringOtherApps: true)
         NSAnimationContext.runAnimationGroup { context in
-            context.duration = NSWorkspace.shared.accessibilityDisplayShouldReduceMotion ? 0 : 0.32
+            context.duration = NSWorkspace.shared.accessibilityDisplayShouldReduceMotion ? 0.12 : 0.32
+            context.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
             panel.animator().alphaValue = 1
         }
     }
@@ -136,7 +138,8 @@ final class OnboardingController {
         UserDefaults.standard.set(true, forKey: "hasCompletedOnboarding")
         if let escaping { NSEvent.removeMonitor(escaping); self.escaping = nil }
         NSAnimationContext.runAnimationGroup { context in
-            context.duration = NSWorkspace.shared.accessibilityDisplayShouldReduceMotion ? 0 : 0.30
+            context.duration = NSWorkspace.shared.accessibilityDisplayShouldReduceMotion ? 0.12 : 0.24
+            context.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
             panel.animator().alphaValue = 0
         } completionHandler: { [weak self, weak panel] in
             guard let self, let panel, self.window === panel else { return }
@@ -163,14 +166,6 @@ private struct OnboardingView: View {
     @ObservedObject var model: OnboardingModel
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     private let cyan = Color(red: 0.43, green: 0.88, blue: 0.94)
-    private let titles = ["Close the lid.\nKeep things going.", "A shortcut you won’t\ntype by accident.", "Lights down.\nWork still running.", "Wi-Fi left?\nBring your own.", "We live up here."]
-    private let bodies = [
-        "Keep your Mac awake, dim its display when the lid closes, and reconnect to your hotspot when Wi-Fi drops. All from one tiny menu.",
-        "It’s an important setting, so we made the keybind hard to accidentally type 😉\n\nControl + Option + Command + K toggles keep awake. Approve administrator access once below. After that, toggles need no password.",
-        "With keep awake enabled, closing the lid brings supported displays to zero brightness. Open it again and your previous brightness returns.\n\nArchaive doesn’t request screen sleep or lock. Your Mac’s other lock settings still apply. Keyboard lighting is unchanged.",
-        "Set your hotspot’s exact Wi-Fi name, emoji included. Archaive waits for Wi-Fi to drop, then tries your hotspot. Keep it nearby and discoverable.\n\nUse Custom Password is useful for a non-Apple hotspot, or whenever macOS normally asks for a password. If macOS already remembers it, leave the toggle off.",
-        "The menu bar. That’s the whole app.\n\nMoon means normal sleep. Sun means keep awake. Click it whenever you need us.\n\nWe added a few arrows. Just to be subtle."
-    ]
 
     var body: some View {
         GeometryReader { geometry in
@@ -180,6 +175,7 @@ private struct OnboardingView: View {
                 RadialGradient(colors: [cyan.opacity(0.13), .clear], center: .trailing, startRadius: 0, endRadius: 700)
                 if model.step == 4, let target = model.target {
                     ArrowSwarm(target: target).allowsHitTesting(false).accessibilityHidden(true)
+                        .transition(.opacity)
                 }
                 VStack(spacing: 20) {
                     HStack {
@@ -188,22 +184,13 @@ private struct OnboardingView: View {
                         Text(String(format: "%02d / 05", model.step + 1)).font(.system(size: 13, design: .monospaced)).foregroundStyle(.white.opacity(0.65))
                         Button("Skip") { model.finish?() }.buttonStyle(.plain).padding(.leading, 20)
                     }.padding(.top, 24)
-                    ScrollView {
-                        ViewThatFits(in: .horizontal) {
-                            HStack(alignment: .center, spacing: 56) {
-                                copy.frame(width: 410)
-                                stage.frame(width: 390)
-                            }.frame(minWidth: 856)
-                            VStack(alignment: .leading, spacing: 28) { copy; stage }
-                        }
-                        .padding(.vertical, 32)
-                        .padding(.horizontal, 10)
-                        .frame(maxWidth: .infinity, minHeight: max(0, geometry.size.height - 190))
-                        .id(model.step)
-                        .transition(reduceMotion ? .opacity : .asymmetric(
-                            insertion: .opacity.combined(with: .offset(x: model.forward ? 80 : -80)),
-                            removal: .opacity.combined(with: .offset(x: model.forward ? -80 : 80))))
+                    ZStack {
+                        TourPage(model: model, step: model.step)
+                            .id(model.step)
+                            .transition(pageTransition)
                     }
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .clipped()
                     HStack {
                         Button("Back") { advance(-1) }.disabled(model.step == 0).buttonStyle(.plain)
                         Spacer()
@@ -215,7 +202,7 @@ private struct OnboardingView: View {
                         Spacer()
                         Button(model.step == 4 ? "Got it. Open the menu." : "Continue") {
                             if model.step == 4 { model.finish?() } else { advance(1) }
-                        }.buttonStyle(TourButton()).keyboardShortcut(.defaultAction)
+                        }.buttonStyle(TourButton()).frame(width: 225, alignment: .trailing).keyboardShortcut(.defaultAction)
                     }.padding(.bottom, 8)
                 }.padding(.horizontal, geometry.size.width < 600 ? 20 : 32).padding(.bottom, 24)
             }.foregroundStyle(.white).preferredColorScheme(.dark)
@@ -223,26 +210,78 @@ private struct OnboardingView: View {
     }
 
     private func advance(_ delta: Int) {
-        withAnimation(reduceMotion ? .none : .spring(response: 0.55, dampingFraction: 0.86)) { model.move(delta) }
+        withAnimation(reduceMotion ? .easeOut(duration: 0.14) : .spring(response: 0.52, dampingFraction: 0.96)) { model.move(delta) }
+    }
+
+    private var pageTransition: AnyTransition {
+        guard !reduceMotion else { return .opacity }
+        let direction: CGFloat = model.forward ? 1 : -1
+        return .asymmetric(
+            insertion: .modifier(active: PageMotion(offset: 36 * direction, opacity: 0, scale: 0.985), identity: PageMotion()),
+            removal: .modifier(active: PageMotion(offset: -24 * direction, opacity: 0, scale: 0.99), identity: PageMotion())
+        )
+    }
+}
+
+// Each outgoing page keeps its own step until its transition finishes.
+private struct TourPage: View {
+    @ObservedObject var model: OnboardingModel
+    let step: Int
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    private let cyan = Color(red: 0.43, green: 0.88, blue: 0.94)
+    private let titles = ["Close the lid.\nKeep things going.", "A shortcut you won’t\ntype by accident.", "Lights down.\nWork still running.", "Wi-Fi left?\nBring your own.", "We live up here."]
+    private let bodies = [
+        "Keep your Mac awake, dim its display when the lid closes, and reconnect to your hotspot when Wi-Fi drops. All from one tiny menu.",
+        "It’s an important setting, so we made the keybind hard to accidentally type 😉\n\nControl + Option + Command + K toggles keep awake. Approve administrator access once below. After that, toggles need no password.",
+        "With keep awake enabled, closing the lid brings supported displays to zero brightness. Open it again and your previous brightness returns.\n\nArchaive doesn’t request screen sleep or lock. Your Mac’s other lock settings still apply. Keyboard lighting is unchanged.",
+        "Set your hotspot’s exact Wi-Fi name, emoji included. Archaive waits for Wi-Fi to drop, then tries your hotspot. Keep it nearby and discoverable.\n\nUse Custom Password is useful for a non-Apple hotspot, or whenever macOS normally asks for a password. If macOS already remembers it, leave the toggle off.",
+        "The menu bar. That’s the whole app.\n\nMoon means normal sleep. Sun means keep awake. Click it whenever you need us.\n\nWe added a few arrows. Just to be subtle."
+    ]
+
+    var body: some View {
+        GeometryReader { geometry in
+            ScrollView {
+                ViewThatFits(in: .horizontal) {
+                    HStack(alignment: .center, spacing: 56) {
+                        copy.frame(width: 410)
+                        stage.frame(width: 390)
+                    }.frame(minWidth: 856)
+                    VStack(alignment: .leading, spacing: 28) { copy; stage }
+                }
+                .padding(.vertical, 32)
+                .padding(.horizontal, 10)
+                .frame(maxWidth: .infinity, minHeight: geometry.size.height)
+            }
+        }
+        .allowsHitTesting(step == model.step)
+        .accessibilityHidden(step != model.step)
     }
 
     private var copy: some View {
         VStack(alignment: .leading, spacing: 22) {
-            Text(["MEET ARCHAIVE", "TRY IT SAFELY", "FULL DIM, STILL AWAKE", "YOUR FIRST SETUP", "IMPOSSIBLE TO MISS"][model.step])
+            Text(["MEET ARCHAIVE", "TRY IT SAFELY", "FULL DIM, STILL AWAKE", "YOUR FIRST SETUP", "IMPOSSIBLE TO MISS"][step])
                 .font(.system(size: 12, weight: .medium, design: .monospaced)).foregroundStyle(cyan)
-            Text(titles[model.step]).font(.system(size: 44, weight: .bold, design: .rounded)).fixedSize(horizontal: false, vertical: true)
-            Text(bodies[model.step]).font(.system(size: 16)).foregroundStyle(.white.opacity(0.78)).lineSpacing(5).fixedSize(horizontal: false, vertical: true)
-            if model.step == 0 { Text("An awake Mac still uses battery and produces heat. Don’t put it in a bag while keep awake is on.").font(.system(size: 12)).foregroundStyle(.white.opacity(0.6)) }
+            Text(titles[step]).font(.system(size: 44, weight: .bold, design: .rounded)).fixedSize(horizontal: false, vertical: true)
+            Text(bodies[step]).font(.system(size: 16)).foregroundStyle(.white.opacity(0.78)).lineSpacing(5).fixedSize(horizontal: false, vertical: true)
+            if step == 0 { Text("An awake Mac still uses battery and produces heat. Don’t put it in a bag while keep awake is on.").font(.system(size: 12)).foregroundStyle(.white.opacity(0.6)) }
         }
     }
 
     @ViewBuilder private var stage: some View {
         VStack(spacing: 24) {
-            if model.step <= 1 {
+            if step <= 1 {
                 Label("LIVE MENU PREVIEW", systemImage: "cursorarrow.click").font(.system(size: 11, weight: .medium, design: .monospaced)).foregroundStyle(cyan)
-                Image(systemName: model.awake ? "sun.max.fill" : "moon.fill").font(.system(size: 65)).foregroundStyle(model.awake ? cyan : .white)
+                ZStack {
+                    Image(systemName: "moon.fill").opacity(model.awake ? 0 : 1)
+                    Image(systemName: "sun.max.fill").foregroundStyle(cyan).opacity(model.awake ? 1 : 0)
+                }
+                .font(.system(size: 65))
+                .frame(width: 90, height: 80)
+                .scaleEffect(reduceMotion || !model.awake ? 1 : 1.06)
+                .animation(.easeInOut(duration: reduceMotion ? 0.12 : 0.28), value: model.awake)
+                .accessibilityLabel(model.awake ? "Keep awake on" : "Keep awake off")
                 Text(model.awake ? "Mac stays awake" : "Mac sleeps normally").font(.system(size: 24, weight: .semibold, design: .rounded))
-                if model.step == 1 {
+                if step == 1 {
                     HStack(spacing: 8) {
                         ForEach(["⌃", "⌥", "⌘", "K"], id: \.self) { key in
                             Text(key).font(.system(size: 29, weight: .medium)).frame(width: 58, height: 58).background(.white.opacity(0.09), in: RoundedRectangle(cornerRadius: 12))
@@ -267,7 +306,7 @@ private struct OnboardingView: View {
                     }.font(.system(size: 14))
                 }
                 Text("Practice changes only the preview. Approve Once installs real toggle permission.").font(.system(size: 12)).foregroundStyle(.white.opacity(0.55))
-            } else if model.step == 2 {
+            } else if step == 2 {
                 ZStack {
                     RoundedRectangle(cornerRadius: 16).fill(model.lidClosed ? Color.black : cyan.opacity(0.22)).frame(height: 190)
                     VStack(spacing: 12) {
@@ -275,9 +314,10 @@ private struct OnboardingView: View {
                         Text(model.lidClosed ? "Brightness 0% · still awake" : "Your brightness · restored").font(.system(size: 13, design: .monospaced))
                     }.foregroundStyle(model.lidClosed ? .white.opacity(0.35) : .white)
                 }
+                .animation(.easeInOut(duration: reduceMotion ? 0.14 : 0.42), value: model.lidClosed)
                 Button(model.lidClosed ? "Open the preview lid" : "Close the preview lid") { model.lidClosed.toggle() }.buttonStyle(TourButton())
                 Text("Simulation. Your actual display stays unchanged.").font(.system(size: 12)).foregroundStyle(.white.opacity(0.6))
-            } else if model.step == 3 {
+            } else if step == 3 {
                 Image(systemName: "personalhotspot").font(.system(size: 65)).foregroundStyle(cyan)
                 Text("One less dropped connection.").font(.system(size: 25, weight: .semibold, design: .rounded)).multilineTextAlignment(.center)
                 Button("Set Up My Hotspot") { model.setup?() }.buttonStyle(TourButton())
@@ -301,16 +341,49 @@ private struct OnboardingView: View {
     }
 }
 
+private struct PageMotion: AnimatableModifier {
+    var offset: CGFloat = 0
+    var opacity: Double = 1
+    var scale: CGFloat = 1
+    var animatableData: AnimatablePair<CGFloat, AnimatablePair<Double, CGFloat>> {
+        get { AnimatablePair(offset, AnimatablePair(opacity, scale)) }
+        set { offset = newValue.first; opacity = newValue.second.first; scale = newValue.second.second }
+    }
+    func body(content: Content) -> some View {
+        content.opacity(opacity).scaleEffect(scale).offset(x: offset)
+    }
+}
+
 private struct TourButton: ButtonStyle {
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     func makeBody(configuration: Configuration) -> some View {
         configuration.label.font(.system(size: 14, weight: .semibold)).foregroundStyle(.black)
             .padding(.horizontal, 22).padding(.vertical, 13)
             .background(Color(red: 0.65, green: 0.94, blue: 0.97).opacity(configuration.isPressed ? 0.75 : 1), in: Capsule())
+            .scaleEffect(configuration.isPressed && !reduceMotion ? 0.97 : 1)
+            .animation(.easeOut(duration: 0.14), value: configuration.isPressed)
     }
 }
 
 private struct ArrowSwarm: View {
     let target: CGPoint
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @State private var progress: CGFloat = 0
+    var body: some View {
+        ArrowDrawing(target: target, progress: reduceMotion ? 1 : progress)
+            .onAppear {
+                withAnimation(reduceMotion ? nil : .easeOut(duration: 0.75).delay(0.1)) { progress = 1 }
+            }
+    }
+}
+
+private struct ArrowDrawing: View, Animatable {
+    let target: CGPoint
+    var progress: CGFloat
+    var animatableData: CGFloat {
+        get { progress }
+        set { progress = newValue }
+    }
     var body: some View {
         Canvas { context, size in
             for index in 0..<28 {
@@ -326,7 +399,8 @@ private struct ArrowSwarm: View {
                     path.move(to: end)
                     path.addLine(to: CGPoint(x: end.x - cos(angle + offset) * 13, y: end.y - sin(angle + offset) * 13))
                 }
-                context.stroke(path, with: .color(index.isMultiple(of: 3) ? .white.opacity(0.65) : .cyan.opacity(0.55)), style: StrokeStyle(lineWidth: index.isMultiple(of: 4) ? 2.5 : 1.2, lineCap: .round))
+                let reveal = min(1, max(0, progress * 1.35 - fraction * 0.35))
+                context.stroke(path.trimmedPath(from: 0, to: reveal), with: .color(index.isMultiple(of: 3) ? .white.opacity(0.65) : .cyan.opacity(0.55)), style: StrokeStyle(lineWidth: index.isMultiple(of: 4) ? 2.5 : 1.2, lineCap: .round))
             }
         }
     }
