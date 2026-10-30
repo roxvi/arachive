@@ -1,5 +1,66 @@
 <img src="assets/icon.svg" width="64" height="64" alt="">
 
-# summrs
+# Archaive
 
-Created in [T3 Code](https://t3.codes).
+A native macOS menu bar app for keeping your Mac awake and reconnecting to your phone's hotspot. Requires macOS 13 or later and Xcode Command Line Tools to build. No third-party dependencies.
+
+## Build and run
+
+```sh
+./scripts/build.sh
+open dist/Archaive.app
+```
+
+Move `dist/Archaive.app` to Applications if you want to keep it. Add it in System Settings > General > Login Items to launch at login. The local build is ad-hoc signed, not notarized for distribution.
+
+## Use
+
+- Press **Control–Option–Command–K** to toggle keep awake. The sun menu icon means sleep is disabled; the moon means normal sleep. The menu also exposes the toggle if another app owns the shortcut.
+- Choose **Set Up Password-Free Toggles…** once (or **Approve Once** in the tour). macOS requests administrator access to install a narrow, per-user permission rule. Subsequent toggles and normal quit restoration use `sudo -n` and never ask interactively. This is a system-wide setting, including lid-closed sleep; it is not merely an idle-sleep assertion. The app starts by reading the actual setting and never enables it automatically.
+- With keep awake and **Fully Dim When Lid Closes** enabled, closing the lid sets supported displays to zero brightness. Opening the lid, disabling the option, or quitting restores the previous brightness. This does not issue display sleep, wake, logout, or screen-lock commands. It uses the lid switch, not hinge angle, and does not change keyboard backlight. Brightness control uses the private DisplayServices framework, resolved at runtime; unsupported monitors report an error instead of falling back to sleep. Other macOS idle/lock policies remain unchanged. After a force quit while dimmed, use the brightness keys if necessary.
+- Connect to your hotspot once through macOS Wi-Fi settings so its password is saved. Choose **Hotspot Settings…**, enter its exact Wi-Fi name, and save. Emoji names and Command-V paste are supported; the Emoji & Symbols button opens Character Viewer. The Wi-Fi limit remains 32 UTF-8 bytes, not 32 visible characters. The phone must be nearby and broadcasting; Archaive cannot turn on a phone hotspot remotely.
+- Hotspot fallback waits 12 seconds without a usable Wi-Fi path, then requests the saved network through `networksetup`. Retries are at least 45 seconds apart. It does not enable a manually disabled Wi-Fi radio or replace an active Wi-Fi path. It is not an internet outage/captive portal detector. macOS credential or administrator restrictions can prevent joining; reconnect manually in Wi-Fi settings if needed.
+
+In **Hotspot Settings…**, enable **Use Custom Password** to enter a password directly. It is stored as an app-specific Keychain item for that exact Wi-Fi name. Leave the field blank to reuse the stored custom password for that name. With the toggle off, Archaive omits the password and uses macOS’s saved credentials. Custom passwords are passed to `networksetup` through standard input, never command-line arguments or UserDefaults. A successful join may update macOS’s saved Wi-Fi password as well.
+
+## Restoring sleep
+
+Quit restores the sleep setting that existed before Archaive changed it. If setup is missing or restoration fails, the app stays open so you can retry. Force Quit, a crash, or a power loss can leave this system-wide setting enabled. On the next launch, Archaive offers **Restore Previous Sleep Setting**. To re-enable sleep manually:
+
+```sh
+sudo pmset -a disablesleep 0
+```
+
+An awake Mac still consumes battery and produces heat with the lid closed. Do not put it in a bag while keep awake is enabled.
+
+## Verification
+
+```sh
+./scripts/test.sh
+```
+
+The standalone harness runs with Command Line Tools, without requiring Xcode/XCTest. Tests cover power-state parsing, reconnect grace periods, retry backoff, recovery after Wi-Fi returns, disabled/unconfigured states, emoji argument preservation and SSID validation, and brightness restoration including failed writes. Hardware acceptance requires checking the shortcut, approving the macOS authorization dialog, closing/reopening the lid, and losing Wi-Fi near a configured hotspot. Building and unit tests do not establish those hardware behaviors.
+
+Implementation references: [Apple's pmset source](https://github.com/apple-oss-distributions/PowerManagement/blob/main/pmset/pmset.m), [Core WLAN](https://developer.apple.com/documentation/corewlan), and the installed `networksetup -help` documentation.
+
+Brightness API reference: [Hammerspoon brightness implementation](https://github.com/Hammerspoon/hammerspoon/blob/master/extensions/brightness/libbrightness.m).
+
+## Welcome tour
+
+First launch opens a five-step desktop takeover: menu reveal, safe shortcut practice, a lid-dimming simulation, optional real hotspot setup, and a menu-bar handoff with 28 arrows aimed at the actual icon. **Replay Welcome Tour…** opens it again without resetting your settings. Skip or Escape dismisses it and records completion. Continue never requires a demo interaction or hotspot setup.
+
+During the tour, the global shortcut only changes the isolated preview on its practice step; it never changes the system sleep setting. The interactive preview uses the same menu builder as the real status menu. Hotspot setup opens the real settings window above the tour. Closing settings preserves the previous configuration and permits retry/skip. Save errors remain in the settings window; successful save enables automatic fallback and returns to the tour.
+
+The overlay follows Spaces on the chosen display without creating a fullscreen Space. Reduced Motion disables directional animations. On small displays, content stacks and scrolls while navigation stays reachable. If the status icon cannot be located, the finale provides a reveal-menu-bar hint instead of pointing at an invented location.
+
+Onboarding state tests cover navigation boundaries, Back direction, demo isolation, and setup/finish callbacks. Native visual layout, VoiceOver/keyboard traversal, Spaces, first-launch persistence, and actual setup/handoff still require runtime verification.
+
+## One-time administrator setup
+
+**Approve Once** in the shortcut-practice step installs `/private/etc/sudoers.d/archaive-<your numeric user ID>`. It grants that macOS user password-free execution of exactly `/usr/bin/pmset -a disablesleep 0` and `/usr/bin/pmset -a disablesleep 1`. Other processes running as that user can also invoke those two commands. It does not grant general sudo access, install a daemon, or store an administrator password. The rule is owned by root:wheel with mode 0440, and persists across app restarts and builds.
+
+The installer checks the existing sudoers configuration, validates the new rule with `visudo`, refuses to overwrite differing rules, and rolls back a new file if final validation fails. Macs without the standard sudoers.d include receive an error; Archaive does not rewrite the main sudoers file. Setup itself does not toggle sleep. If setup is skipped/cancelled, the first real toggle offers setup again; after setup, press the shortcut again to toggle.
+
+**Remove Password-Free Access…** removes only this user's Archaive rule, with administrator approval. First restore the previous sleep setting and turn keep awake off. Removing the app alone does not remove the permission. If macOS or an administrator removes/overrides the rule later, Archaive reports an error rather than falling back to repeated password dialogs.
+
+Regression tests validate the exact rule using the installed `visudo`, installer shell syntax, and shell/AppleScript escaping without installing anything. Actual administrator approval, installation/removal, and password-free toggles require a live authorized setup check. Rule semantics: [sudoers manual](https://www.sudo.ws/docs/man/1.9.14/sudoers.man.pdf).
