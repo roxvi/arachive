@@ -174,11 +174,10 @@ private struct OnboardingView: View {
                 Color.black.opacity(0.77)
                 RadialGradient(colors: [cyan.opacity(0.13), .clear], center: .trailing, startRadius: 0, endRadius: 700)
                 if model.step == 4, let target = model.target {
-                    MenuBarPointer(target: target).allowsHitTesting(false).accessibilityHidden(true)
+                    MenuBarArrows(target: target).allowsHitTesting(false).accessibilityHidden(true)
                 }
                 VStack(spacing: 20) {
                     HStack {
-                        Label("archaive", systemImage: "moon.stars.fill").font(.system(size: 20, weight: .bold, design: .rounded))
                         Spacer()
                         Text(String(format: "%02d / 05", model.step + 1)).font(.system(size: 13, design: .monospaced)).foregroundStyle(.white.opacity(0.65))
                         Button("Skip") { model.finish?() }.buttonStyle(.plain).padding(.leading, 20)
@@ -191,7 +190,7 @@ private struct OnboardingView: View {
                             }
                         }
                         .offset(x: -CGFloat(model.step) * viewport.size.width)
-                        .animation(reduceMotion ? nil : .timingCurve(0.22, 1, 0.36, 1, duration: 0.5), value: model.step)
+                        .animation(reduceMotion ? nil : .timingCurve(0.22, 0.8, 0.24, 1, duration: 0.7), value: model.step)
                         .frame(width: viewport.size.width, alignment: .leading)
                     }
                     .clipped()
@@ -346,17 +345,41 @@ private struct TourButton: ButtonStyle {
     }
 }
 
-private struct MenuBarPointer: View {
+private struct MenuBarArrows: View {
     let target: CGPoint
 
     var body: some View {
-        Canvas { context, _ in
-            let ring = CGRect(x: target.x - 17, y: target.y - 13, width: 34, height: 26)
-            context.stroke(Path(roundedRect: ring, cornerRadius: 9), with: .color(.cyan.opacity(0.65)), lineWidth: 1.5)
-            var stem = Path()
-            stem.move(to: CGPoint(x: target.x, y: target.y + 19))
-            stem.addLine(to: CGPoint(x: target.x, y: target.y + 49))
-            context.stroke(stem, with: .color(.white.opacity(0.45)), style: StrokeStyle(lineWidth: 1, lineCap: .round))
+        Canvas { context, size in
+            // Match the reference: a solid red shaft with a broad triangular head.
+            for index in 0..<12 {
+                let column = CGFloat(index % 6)
+                let row = CGFloat(index / 6)
+                let start = CGPoint(
+                    x: 30 + (column + row * 0.25) / 5.25 * max(0, size.width - 60),
+                    y: 100 + row * 85
+                )
+                let dx = target.x - start.x
+                let dy = target.y - start.y
+                let distance = hypot(dx, dy)
+                let length = min(160, distance - 30)
+                guard length > 35 else { continue }
+                let halfHeight = length * 0.178
+                let halfShaft = halfHeight * 0.45
+                let neck = length * 0.69
+                var arrow = Path()
+                arrow.move(to: CGPoint(x: 0, y: -halfShaft))
+                arrow.addLine(to: CGPoint(x: neck, y: -halfShaft))
+                arrow.addLine(to: CGPoint(x: neck, y: -halfHeight))
+                arrow.addLine(to: CGPoint(x: length, y: 0))
+                arrow.addLine(to: CGPoint(x: neck, y: halfHeight))
+                arrow.addLine(to: CGPoint(x: neck, y: halfShaft))
+                arrow.addLine(to: CGPoint(x: 0, y: halfShaft))
+                arrow.closeSubpath()
+                var drawing = context
+                drawing.translateBy(x: start.x, y: start.y)
+                drawing.rotate(by: .radians(atan2(dy, dx)))
+                drawing.fill(arrow, with: .color(Color(red: 1, green: 0, blue: 0)))
+            }
         }
     }
 }
