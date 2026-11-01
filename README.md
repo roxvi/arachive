@@ -2,7 +2,21 @@
 
 # Archaive
 
-A native macOS menu bar app for keeping your Mac awake and reconnecting to your phone's hotspot. Requires macOS 13 or later and Xcode Command Line Tools to build. No third-party dependencies.
+A native macOS menu bar app for keeping your Mac awake and reconnecting to your phone's hotspot. Requires macOS 13 or later and Xcode Command Line Tools to build. No third-party runtime dependencies.
+
+## Install
+
+Download the Apple Silicon DMG from [Releases](https://github.com/roxvi/arachive/releases), open it, and drag **Archaive** onto **Applications**. Eject the disk image, then open Archaive from Applications. The installer includes a large Finder window with the actual draggable icons and a connecting arrow.
+
+Or install the same public release with Homebrew; no GitHub login or token is needed:
+
+```sh
+brew install --cask roxvi/tap/archaive
+```
+
+The app is ad-hoc signed, not Apple-notarized. If macOS blocks the first launch and you trust the source, use Apple's per-app **Open Anyway** approval in System Settings → Privacy & Security. Quit Archaive before upgrading so it can restore sleep and brightness.
+
+The canonical repository is **roxvi/arachive**; the app name is **Archaive**. Source history from `summrs-private` has been merged here, and the original `summrs` release remains available.
 
 ## Build and run
 
@@ -12,6 +26,15 @@ open dist/Archaive.app
 ```
 
 Move `dist/Archaive.app` to Applications if you want to keep it. Add it in System Settings > General > Login Items to launch at login. The local build is ad-hoc signed, not notarized for distribution.
+
+To build the release installer on Apple Silicon:
+
+```sh
+./scripts/test.sh
+python3 scripts/package-dmg.py
+```
+
+Packaging requires Python 3 and downloads pinned `dmgbuild` dependencies into an isolated `.build/dmg-venv`. It generates `dist/Archaive-<version>-arm64.dmg` and its SHA-256 file. Update `VERSION` before making a new installer; the packager refuses to overwrite existing installers. No packaging dependencies ship in the app.
 
 ## Use
 
