@@ -8,6 +8,8 @@ If a push fails, report it; do not rewrite remote history.
 
 ## Distribution
 
+- Archaive's app and repository logo uses a white **A** on the existing green rounded square, not the old **S**.
+
 - The canonical repository is `roxvi/arachive` (the requested repository spelling); the application remains **Archaive**. It combines the histories of `summrs` and `summrs-private`.
 - Publish public release assets and use ordinary public download URLs in `roxvi/homebrew-tap`; installation must not require a GitHub token or a private repository.
 - Use a Veil-style DMG: a large Finder window, clear drag-to-install instructions, large actual app/Applications icons, a connecting arrow, and minimal chrome.

@@ -17,7 +17,7 @@ for size in [16, 32, 128, 256, 512] {
         NSColor(calibratedRed: 5 / 255, green: 150 / 255, blue: 105 / 255, alpha: 1).setFill()
         NSBezierPath(roundedRect: NSRect(x: 0, y: 0, width: 64, height: 64),
                      xRadius: 14, yRadius: 14).fill()
-        let text = NSAttributedString(string: "S", attributes: [
+        let text = NSAttributedString(string: "A", attributes: [
             .font: NSFont.systemFont(ofSize: 32, weight: .semibold),
             .foregroundColor: NSColor.white,
         ])
