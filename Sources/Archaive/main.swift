@@ -7,6 +7,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSWind
     private let hotspot = Hotspot()
     private let onboarding = OnboardingController()
     private var statusItem: NSStatusItem!
+    private let statusIcon = StatusIconAnimator()
     private var timer: Timer?
     private var disabled = false
     private var known = false
@@ -117,10 +118,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSWind
     @objc private func replayOnboarding() { onboarding.present() }
 
     private func updateIcon() {
-        let image = NSImage(systemSymbolName: disabled ? "sun.max.fill" : "moon", accessibilityDescription: disabled ? "Archaive: keeping awake" : "Archaive: normal sleep")
-        image?.isTemplate = true
-        statusItem.button?.image = image
-        statusItem.button?.toolTip = "Archaive · \(disabled ? "Awake" : "Normal sleep") · ⌃⌥⌘K"
+        guard let button = statusItem.button else { return }
+        button.toolTip = "Archaive · \(disabled ? "Awake" : "Normal sleep") · ⌃⌥⌘K"
+        statusIcon.update(button: button, awake: disabled)
     }
 
     private func refreshSleep() {
