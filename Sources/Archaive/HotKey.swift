@@ -17,7 +17,7 @@ struct Shortcut: Codable, Equatable {
         ("Control", "⌃", UInt32(controlKey)), ("Option", "⌥", UInt32(optionKey)),
         ("Shift", "⇧", UInt32(shiftKey)), ("Command", "⌘", UInt32(cmdKey))
     ]
-    static let standard = Shortcut(keyCode: UInt32(kVK_ANSI_K), modifiers: UInt32(cmdKey | shiftKey))
+    static let standard = Shortcut(keyCode: UInt32(kVK_ANSI_K), modifiers: UInt32(cmdKey | optionKey | controlKey))
     var isValid: Bool {
         Self.keys.contains { $0.1 == keyCode } &&
         modifiers & UInt32(cmdKey | optionKey | controlKey) != 0 &&

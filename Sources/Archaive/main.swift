@@ -1,10 +1,10 @@
 import AppKit
-import SwiftUI
 
 final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSWindowDelegate {
     private let defaults = UserDefaults.standard
     private let work = DispatchQueue(label: "Archaive.Power")
     private let hotKey = HotKey()
+    private let shortcutPopover = ShortcutPopover()
     private let hotspot = Hotspot()
     private let onboarding = OnboardingController()
     private var statusItem: NSStatusItem!
@@ -75,14 +75,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSWind
         if menu === self.menu { rebuildMenu(); refreshSleep() }
     }
 
-    func menuDidClose(_ menu: NSMenu) {
-        func stop(in view: NSView) {
-            (view as? ShortcutRecordButton)?.stopRecording()
-            view.subviews.forEach { stop(in: $0) }
-        }
-        menu.items.compactMap(\.view).forEach { stop(in: $0) }
-    }
-
     private func rebuildMenu() { populateMenu(menu) }
 
     private func populateMenu(_ menu: NSMenu, preview: OnboardingModel? = nil) {
@@ -105,41 +97,27 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSWind
             item(awake ? "Mac stays awake" : "Mac sleeps normally")
         }
         let shortcutRow = NSMenuItem()
-        shortcutRow.view = NSHostingView(rootView:
-            HStack(spacing: 12) {
-                Button { [weak self, weak menu] in
-                    menu?.cancelTracking()
-                    if let preview { preview.toggleSleep() } else { self?.toggleSleep() }
-                } label: {
-                    HStack(spacing: 8) {
-                        Image(systemName: "checkmark").opacity(awake ? 1 : 0)
-                        Text("Toggle Keep Awake")
-                    }
-                }
-                .buttonStyle(.plain)
-                .disabled(preview == nil && (busy || !known))
-                Spacer(minLength: 0)
-                ShortcutRecorder(shortcut: hotKey.shortcut, keySize: 24,
-                    save: { [weak self] in self?.saveShortcut($0) },
-                    recordingChanged: { [weak self] in self?.recordingShortcut($0) })
-            }
-            .font(.system(size: 13))
-            .padding(.leading, 8).padding(.trailing, 16).frame(width: 340, height: 36)
-        )
-        shortcutRow.view?.frame.size = NSSize(width: 340, height: 36)
+        shortcutRow.view = ShortcutMenuRow(shortcut: hotKey.shortcut, awake: awake,
+            enabled: preview != nil || (!busy && known),
+            toggle: { [weak self, weak menu] in
+                menu?.cancelTracking()
+                if let preview { preview.toggleSleep() } else { self?.toggleSleep() }
+            }, edit: { [weak self, weak menu] in
+                menu?.cancelTracking()
+                DispatchQueue.main.async { self?.editShortcut() }
+            })
         menu.addItem(shortcutRow)
-        if !shortcutOK && preview == nil { item("Shortcut unavailable — click the keys to edit") }
+        if !shortcutOK && preview == nil { item("Shortcut unavailable — click to edit") }
         item("Fully Dim When Lid Closes", #selector(toggleDimming), checked: preview?.dim ?? defaults.bool(forKey: "dimOnClose"))
-        item(preview != nil ? "Lid open" : lastLid.map { $0 ? "Lid closed" : "Lid open" } ?? "Lid sensor unavailable")
+            .toolTip = preview != nil ? "Lid open" : lastLid.map { $0 ? "Lid closed" : "Lid open" } ?? "Lid sensor unavailable"
         menu.addItem(.separator())
-        item(preview != nil ? "Wi-Fi connected" : networkStatus)
         item("Auto-Connect to Hotspot", #selector(toggleHotspot), checked: preview?.hotspot ?? defaults.bool(forKey: "hotspotEnabled"))
+            .toolTip = preview != nil ? "Your phone · Wi-Fi connected" : [defaults.string(forKey: "hotspotName"), networkStatus].compactMap { $0 }.joined(separator: " · ")
         item("Hotspot Settings…", #selector(configureHotspot))
         if preview != nil {
             item("Hotspot: Your phone 📱")
             return
         }
-        if let name = defaults.string(forKey: "hotspotName"), !name.isEmpty { item("Hotspot: \(name)") }
         menu.addItem(.separator())
         if defaults.object(forKey: "originalSleepDisabled") != nil {
             item("Restore Previous Sleep Setting", #selector(restoreSleep)).isEnabled = !busy
@@ -149,6 +127,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSWind
         item("Replay Welcome Tour…", #selector(replayOnboarding))
         item("About Archaive…", #selector(about))
         item("Quit Archaive", #selector(quit)).isEnabled = !busy
+    }
+
+    private func editShortcut() {
+        guard let button = statusItem.button else { return }
+        shortcutPopover.show(from: button, shortcut: hotKey.shortcut,
+            save: { [weak self] in self?.saveShortcut($0) },
+            recordingChanged: { [weak self] in self?.recordingShortcut($0) })
     }
 
     private func recordingShortcut(_ recording: Bool) {

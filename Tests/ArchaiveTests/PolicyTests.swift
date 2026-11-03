@@ -20,15 +20,75 @@ struct PolicyTests {
         tests.testOnboardingNavigationAndDemoIsolation()
         tests.testSleepAccessRuleAndInstaller()
         tests.testShortcutPreferences()
-        print("10 regression tests passed")
+        tests.testShortcutRecordingLifecycle()
+        tests.testShortcutResponderRouting()
+        print("12 regression tests passed")
     }
+    func testShortcutRecordingLifecycle() {
+        _ = NSApplication.shared
+        let recorder = ShortcutRecordButton()
+        var changes: [Bool] = []
+        var saved: [Shortcut] = []
+        recorder.recordingChanged = { changes.append($0) }
+        recorder.save = { saved.append($0); return nil }
+        recorder.startRecording()
+        recorder.updateModifiers([.command, .option])
+        XCTAssertEqual(recorder.liveSymbols, ["⌥", "⌘", "…"])
+        recorder.capture(keyCode: 0, flags: [])
+        XCTAssertTrue(recorder.recording)
+        XCTAssertTrue(saved.isEmpty)
+        recorder.capture(keyCode: 0, flags: [.command], repeating: true)
+        XCTAssertTrue(saved.isEmpty)
+        recorder.capture(keyCode: 0, flags: [.command])
+        XCTAssertEqual(saved, [Shortcut(keyCode: 0, modifiers: 256)])
+        XCTAssertFalse(recorder.recording)
+        XCTAssertEqual(changes, [true, false])
+        recorder.startRecording()
+        recorder.capture(keyCode: 53, flags: [])
+        XCTAssertEqual(saved.count, 1)
+        XCTAssertFalse(recorder.recording)
+        recorder.save = { _ in "Already in use" }
+        recorder.startRecording()
+        recorder.capture(keyCode: 40, flags: [.control, .option, .command])
+        XCTAssertTrue(recorder.recording)
+        XCTAssertEqual(recorder.shortcut.label, "⌘A")
+        recorder.stopRecording()
+        XCTAssertEqual(changes, [true, false, true, false, true, false])
+    }
+
+    func testShortcutResponderRouting() {
+        _ = NSApplication.shared
+        let recorder = ShortcutRecordButton()
+        var saved: Shortcut?
+        recorder.save = { saved = $0; return nil }
+        recorder.startRecording()
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 250, height: 50), styleMask: .titled, backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        window.contentView = recorder
+        XCTAssertTrue(window.makeFirstResponder(recorder))
+        let modifiers = NSEvent.keyEvent(with: .flagsChanged, location: .zero, modifierFlags: [.control, .option, .command], timestamp: 0, windowNumber: window.windowNumber, context: nil, characters: "", charactersIgnoringModifiers: "", isARepeat: false, keyCode: 55)!
+        recorder.flagsChanged(with: modifiers)
+        XCTAssertEqual(recorder.liveSymbols, ["⌃", "⌥", "⌘", "…"])
+        let key = NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: [.control, .option, .command], timestamp: 0, windowNumber: window.windowNumber, context: nil, characters: "k", charactersIgnoringModifiers: "k", isARepeat: false, keyCode: 40)!
+        XCTAssertTrue(recorder.performKeyEquivalent(with: key))
+        XCTAssertEqual(saved, .standard)
+        XCTAssertFalse(recorder.recording)
+        recorder.removeFromSuperview()
+        window.close()
+        saved = nil
+        recorder.startRecording()
+        recorder.keyDown(with: key)
+        XCTAssertEqual(saved, .standard)
+        XCTAssertFalse(recorder.recording)
+    }
+
     func testShortcutPreferences() {
         let suite = "Archaive.ShortcutTests.\(UUID().uuidString)"
         let defaults = UserDefaults(suiteName: suite)!
         defer { defaults.removePersistentDomain(forName: suite) }
         XCTAssertEqual(Shortcut.load(from: defaults), .standard)
-        XCTAssertEqual(Shortcut.standard.label, "⇧⌘K")
-        XCTAssertEqual(Shortcut.captured(keyCode: 40, flags: [.shift, .command]), .standard)
+        XCTAssertEqual(Shortcut.standard.label, "⌃⌥⌘K")
+        XCTAssertEqual(Shortcut.captured(keyCode: 40, flags: [.control, .option, .command]), .standard)
         XCTAssertEqual(Shortcut.captured(keyCode: 0, flags: [.command, .shift])?.symbols, ["⇧", "⌘", "A"])
         XCTAssertEqual(Shortcut.captured(keyCode: 0, flags: [.command, .capsLock])?.label, "⌘A")
         XCTAssertNil(Shortcut.captured(keyCode: 0, flags: [.shift]))
