@@ -1,4 +1,5 @@
 import AppKit
+import SwiftUI
 
 final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSWindowDelegate {
     private let defaults = UserDefaults.standard
@@ -50,10 +51,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSWind
         rebuildMenu()
         onboarding.previewMenu = { [weak self] model in
             let preview = NSMenu()
+            preview.delegate = self
             self?.populateMenu(preview, preview: model)
             return preview
         }
-        onboarding.customizeShortcut = { [weak self] in self?.configureShortcut() }
+        onboarding.saveShortcut = { [weak self] in self?.saveShortcut($0) }
+        onboarding.recordingShortcut = { [weak self] in self?.recordingShortcut($0) }
         onboarding.authorize = { [weak self] in self?.setupSleepAccess() }
         onboarding.authorized = { SleepAccess.isInstalled }
         onboarding.setup = { [weak self] in self?.configureHotspot() }
@@ -68,7 +71,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSWind
         }
     }
 
-    func menuWillOpen(_ menu: NSMenu) { rebuildMenu(); refreshSleep() }
+    func menuWillOpen(_ menu: NSMenu) {
+        if menu === self.menu { rebuildMenu(); refreshSleep() }
+    }
+
+    func menuDidClose(_ menu: NSMenu) {
+        func stop(in view: NSView) {
+            (view as? ShortcutRecordButton)?.stopRecording()
+            view.subviews.forEach { stop(in: $0) }
+        }
+        menu.items.compactMap(\.view).forEach { stop(in: $0) }
+    }
 
     private func rebuildMenu() { populateMenu(menu) }
 
@@ -91,10 +104,31 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSWind
         } else {
             item(awake ? "Mac stays awake" : "Mac sleeps normally")
         }
-        item("Toggle Keep Awake    \(hotKey.shortcut.label)", #selector(toggleSleep), checked: awake)
-            .isEnabled = preview != nil || (!busy && known)
-        if !shortcutOK && preview == nil { item("Shortcut unavailable — another app may use it") }
-        if preview == nil { item("Keyboard Shortcut…", #selector(configureShortcut)) }
+        let shortcutRow = NSMenuItem()
+        shortcutRow.view = NSHostingView(rootView:
+            HStack(spacing: 12) {
+                Button { [weak self, weak menu] in
+                    menu?.cancelTracking()
+                    if let preview { preview.toggleSleep() } else { self?.toggleSleep() }
+                } label: {
+                    HStack(spacing: 8) {
+                        Image(systemName: "checkmark").opacity(awake ? 1 : 0)
+                        Text("Toggle Keep Awake")
+                    }
+                }
+                .buttonStyle(.plain)
+                .disabled(preview == nil && (busy || !known))
+                Spacer(minLength: 0)
+                ShortcutRecorder(shortcut: hotKey.shortcut, keySize: 24,
+                    save: { [weak self] in self?.saveShortcut($0) },
+                    recordingChanged: { [weak self] in self?.recordingShortcut($0) })
+            }
+            .font(.system(size: 13))
+            .padding(.leading, 8).padding(.trailing, 16).frame(width: 340, height: 36)
+        )
+        shortcutRow.view?.frame.size = NSSize(width: 340, height: 36)
+        menu.addItem(shortcutRow)
+        if !shortcutOK && preview == nil { item("Shortcut unavailable — click the keys to edit") }
         item("Fully Dim When Lid Closes", #selector(toggleDimming), checked: preview?.dim ?? defaults.bool(forKey: "dimOnClose"))
         item(preview != nil ? "Lid open" : lastLid.map { $0 ? "Lid closed" : "Lid open" } ?? "Lid sensor unavailable")
         menu.addItem(.separator())
@@ -117,49 +151,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSWind
         item("Quit Archaive", #selector(quit)).isEnabled = !busy
     }
 
-    @objc private func configureShortcut() {
-        NSApp.activate(ignoringOtherApps: true)
-        let alert = NSAlert()
-        alert.messageText = "Keep Awake Shortcut"
-        alert.informativeText = "Choose a letter or number and at least one of Command, Option, or Control. Key names use the US keyboard layout."
-        alert.addButton(withTitle: "Save")
-        alert.addButton(withTitle: "Cancel")
-        alert.addButton(withTitle: "Restore Default")
-        let view = NSView(frame: NSRect(x: 0, y: 0, width: 360, height: 90))
-        let key = NSPopUpButton(frame: NSRect(x: 0, y: 54, width: 100, height: 26))
-        key.addItems(withTitles: Shortcut.keys.map { $0.0 })
-        key.selectItem(at: Shortcut.keys.firstIndex { $0.1 == hotKey.shortcut.keyCode } ?? 10)
-        key.setAccessibilityLabel("Shortcut key")
-        view.addSubview(key)
-        let modifiers = Shortcut.modifierKeys.enumerated().map { index, entry in
-            let button = NSButton(checkboxWithTitle: entry.0, target: nil, action: nil)
-            button.frame = NSRect(x: index % 2 * 180, y: index / 2 * 25, width: 175, height: 24)
-            button.state = hotKey.shortcut.modifiers & entry.2 != 0 ? .on : .off
-            view.addSubview(button)
-            return button
-        }
-        alert.accessoryView = view
-        while true {
-            let response = alert.runModal()
-            if response == .alertSecondButtonReturn { return }
-            let candidate = response == .alertThirdButtonReturn ? Shortcut.standard : Shortcut(
-                keyCode: Shortcut.keys[key.indexOfSelectedItem].1,
-                modifiers: zip(modifiers, Shortcut.modifierKeys).reduce(UInt32(0)) { $0 | ($1.0.state == .on ? $1.1.2 : 0) })
-            guard candidate.isValid else {
-                alert.informativeText = "Select at least one of Command, Option, or Control."
-                continue
-            }
-            guard hotKey.register(candidate) else {
-                alert.informativeText = "That shortcut is unavailable. Choose another combination. Your previous shortcut has been kept."
-                continue
-            }
-            candidate.save(to: defaults)
-            shortcutOK = true
-            onboarding.model.shortcut = candidate
-            updateIcon()
-            rebuildMenu()
-            return
-        }
+    private func recordingShortcut(_ recording: Bool) {
+        onboarding.model.recordingShortcut = recording
+        if recording { hotKey.suspend() }
+        else { shortcutOK = hotKey.register() }
+    }
+
+    private func saveShortcut(_ candidate: Shortcut) -> String? {
+        guard candidate.isValid else { return "Include Command, Option, or Control with a letter or number." }
+        guard hotKey.register(candidate) else { return "Shortcut in use. Try another combination." }
+        candidate.save(to: defaults)
+        shortcutOK = true
+        onboarding.model.shortcut = candidate
+        updateIcon()
+        // Rebuild the status menu on its next opening, after tracking ends.
+        return nil
     }
 
     @objc private func replayOnboarding() { onboarding.present() }

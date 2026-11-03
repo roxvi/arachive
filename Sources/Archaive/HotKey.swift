@@ -17,11 +17,21 @@ struct Shortcut: Codable, Equatable {
         ("Control", "⌃", UInt32(controlKey)), ("Option", "⌥", UInt32(optionKey)),
         ("Shift", "⇧", UInt32(shiftKey)), ("Command", "⌘", UInt32(cmdKey))
     ]
-    static let standard = Shortcut(keyCode: UInt32(kVK_ANSI_K), modifiers: UInt32(cmdKey | optionKey | controlKey))
+    static let standard = Shortcut(keyCode: UInt32(kVK_ANSI_K), modifiers: UInt32(cmdKey | shiftKey))
     var isValid: Bool {
         Self.keys.contains { $0.1 == keyCode } &&
         modifiers & UInt32(cmdKey | optionKey | controlKey) != 0 &&
         modifiers & ~UInt32(cmdKey | optionKey | controlKey | shiftKey) == 0
+    }
+    static func captured(keyCode: UInt16, flags: NSEvent.ModifierFlags) -> Shortcut? {
+        let flags = flags.intersection(.deviceIndependentFlagsMask)
+        guard !flags.contains(.function) else { return nil }
+        let mapping: [(NSEvent.ModifierFlags, UInt32)] = [
+            (.command, UInt32(cmdKey)), (.option, UInt32(optionKey)),
+            (.control, UInt32(controlKey)), (.shift, UInt32(shiftKey))
+        ]
+        let shortcut = Shortcut(keyCode: UInt32(keyCode), modifiers: mapping.reduce(0) { $0 | (flags.contains($1.0) ? $1.1 : 0) })
+        return shortcut.isValid ? shortcut : nil
     }
     var symbols: [String] {
         Self.modifierKeys.filter { modifiers & $0.2 != 0 }.map { $0.1 } + [Self.keys.first { $0.1 == keyCode }?.0 ?? "?"]
@@ -64,6 +74,11 @@ final class HotKey {
         ref = replacement
         shortcut = value
         return true
+    }
+
+    func suspend() {
+        if let ref { UnregisterEventHotKey(ref) }
+        ref = nil
     }
 
     deinit {

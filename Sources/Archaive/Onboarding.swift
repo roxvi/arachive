@@ -4,6 +4,7 @@ import QuartzCore
 
 final class OnboardingModel: NSObject, ObservableObject {
     @Published var shortcut = Shortcut.load()
+    var recordingShortcut = false
     @Published var step = 0
     @Published var forward = true
     @Published var awake = false
@@ -15,7 +16,8 @@ final class OnboardingModel: NSObject, ObservableObject {
     @Published var authorizationStatus = "Approve once. Future keep-awake toggles need no password."
     @Published var authorizationBusy = false
     @Published var authorizationReady = false
-    var customizeShortcut: (() -> Void)?
+    var saveShortcut: ((Shortcut) -> String?)?
+    var recordingChanged: ((Bool) -> Void)?
     var authorize: (() -> Void)?
     @Published var target: CGPoint?
     var finish: (() -> Void)?
@@ -48,7 +50,8 @@ final class OnboardingController {
     var setup: (() -> Void)?
     var statusButton: (() -> NSStatusBarButton?)?
     var handoff: (() -> Void)?
-    var customizeShortcut: (() -> Void)?
+    var saveShortcut: ((Shortcut) -> String?)?
+    var recordingShortcut: ((Bool) -> Void)?
     var authorize: (() -> Void)?
     var authorized: (() -> Bool)?
     private var escaping: Any?
@@ -61,13 +64,8 @@ final class OnboardingController {
         model.authorizationReady = authorized?() ?? false
         if model.authorizationReady { model.authorizationStatus = "Already approved. Toggles need no password." }
         model.authorize = { [weak self] in self?.authorize?() }
-        model.customizeShortcut = { [weak self] in
-            guard let self else { return }
-            self.window?.level = .normal
-            self.customizeShortcut?()
-            self.window?.level = .floating
-            self.window?.makeKeyAndOrderFront(nil)
-        }
+        model.saveShortcut = { [weak self] in self?.saveShortcut?($0) }
+        model.recordingChanged = { [weak self] in self?.recordingShortcut?($0) }
         let panel = TakeoverWindow(contentRect: screen.frame, styleMask: .borderless, backing: .buffered, defer: false)
         panel.backgroundColor = .clear
         panel.isOpaque = false
@@ -89,7 +87,7 @@ final class OnboardingController {
         window = panel
         escaping = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
             guard let self, self.window?.isKeyWindow == true else { return event }
-            if event.keyCode == 53 { self.dismiss(); return nil }
+            if event.keyCode == 53 && !self.model.recordingShortcut { self.dismiss(); return nil }
             return event
         }
         panel.alphaValue = 0
@@ -104,7 +102,7 @@ final class OnboardingController {
 
     func handleShortcut() -> Bool {
         guard isPresented else { return false }
-        if model.step == 1 { model.toggleSleep() }
+        if model.step == 1 && !model.recordingShortcut { model.toggleSleep() }
         return true // Never change the machine from a tutorial shortcut.
     }
 
@@ -234,7 +232,7 @@ private struct TourPage: View {
     private let titles = ["Close the lid.\nKeep things going.", "A shortcut you won’t\ntype by accident.", "Lights down.\nWork still running.", "Wi-Fi left?\nBring your own.", "We live up here."]
     private var bodies: [String] { [
         "Keep your Mac awake, dim its display when the lid closes, and reconnect to your hotspot when Wi-Fi drops. All from one tiny menu.",
-        "It’s an important setting, so we made the keybind hard to accidentally type 😉\n\n\(model.shortcut.label) toggles keep awake. Customize it below or later from Keyboard Shortcut… in the menu. Approve administrator access once below. After that, toggles need no password.",
+        "\(model.shortcut.label) toggles keep awake. Click the keys to record your own combination, here or in the menu bar.\n\nApprove administrator access once. After that, toggles need no password.",
         "With keep awake enabled, closing the lid brings supported displays to zero brightness. Open it again and your previous brightness returns.\n\nArchaive doesn’t request screen sleep or lock. Your Mac’s other lock settings still apply. Keyboard lighting is unchanged.",
         "Set your hotspot’s exact Wi-Fi name, emoji included. Archaive waits for Wi-Fi to drop, then tries your hotspot. Keep it nearby and discoverable.\n\nUse Custom Password is useful for a non-Apple hotspot, or whenever macOS normally asks for a password. If macOS already remembers it, leave the toggle off.",
         "The menu bar. That’s the whole app.\n\nMoon means normal sleep. Sun means keep awake. Click it whenever you need us."
@@ -271,7 +269,7 @@ private struct TourPage: View {
     }
 
     @ViewBuilder private var stage: some View {
-        VStack(spacing: 24) {
+        VStack(spacing: step == 1 ? 20 : 24) {
             if step <= 1 {
                 Label("LIVE MENU PREVIEW", systemImage: "cursorarrow.click").font(.system(size: 11, weight: .medium, design: .monospaced)).foregroundStyle(cyan)
                 ZStack {
@@ -285,21 +283,32 @@ private struct TourPage: View {
                 .accessibilityLabel(model.awake ? "Keep awake on" : "Keep awake off")
                 Text(model.awake ? "Mac stays awake" : "Mac sleeps normally").font(.system(size: 24, weight: .semibold, design: .rounded))
                 if step == 1 {
-                    HStack(spacing: 8) {
-                        ForEach(model.shortcut.symbols, id: \.self) { key in
-                            Text(key).font(.system(size: 29, weight: .medium)).frame(width: 58, height: 58).background(.white.opacity(0.09), in: RoundedRectangle(cornerRadius: 12))
-                        }
-                    }.accessibilityLabel(model.shortcut.label)
-                    Button("Customize shortcut…") { model.customizeShortcut?() }.buttonStyle(.plain)
-                    Button("Try the toggle") { model.toggleSleep() }.buttonStyle(TourButton())
-                    Button("Open interactive menu") { model.openMenu?() }.buttonStyle(.plain)
+                    VStack(spacing: 10) {
+                        ShortcutRecorder(shortcut: model.shortcut, keySize: 50,
+                            save: { model.saveShortcut?($0) },
+                            recordingChanged: { model.recordingChanged?($0) })
+                        Text("Click to edit · Press your shortcut · Esc to cancel")
+                            .font(.system(size: 12)).foregroundStyle(.white.opacity(0.65))
+                    }
+                    VStack(spacing: 12) {
+                        Button("Try the toggle") { model.toggleSleep() }.buttonStyle(TourButton())
+                        Text(model.practiced ? "That’s it. Only the preview changed." : "Practice here without changing your Mac.")
+                            .font(.system(size: 12)).foregroundStyle(cyan)
+                        Button("Open interactive menu") { model.openMenu?() }.buttonStyle(.plain)
+                    }
                     Divider()
-                    Button(model.authorizationReady ? "Administrator Setup Complete" : "Approve Once") { model.authorize?() }
-                        .buttonStyle(TourButton()).disabled(model.authorizationBusy || model.authorizationReady)
-                    Text(model.authorizationStatus).font(.system(size: 13)).foregroundStyle(cyan).multilineTextAlignment(.center)
-                    Text("Allows your macOS user to run only the two keep-awake on/off commands without a password. No password is stored. Remove access from the menu anytime after restoring sleep.")
-                        .font(.system(size: 12)).foregroundStyle(.white.opacity(0.65)).multilineTextAlignment(.center)
-                    Text(model.practiced ? "That’s it. Only the preview changed." : "Press the shortcut, or use the button.").font(.system(size: 13)).foregroundStyle(cyan)
+                    VStack(spacing: 12) {
+                        if model.authorizationReady {
+                            Label("Administrator access approved", systemImage: "checkmark.circle.fill")
+                                .font(.system(size: 14, weight: .medium)).foregroundStyle(cyan)
+                        } else {
+                            Button("Approve Once") { model.authorize?() }
+                                .buttonStyle(TourButton()).disabled(model.authorizationBusy)
+                            Text(model.authorizationStatus).font(.system(size: 13)).foregroundStyle(cyan).multilineTextAlignment(.center)
+                        }
+                        Text("Allows only the keep-awake on/off commands without a password. No password is stored. Remove access from the menu after restoring sleep.")
+                            .font(.system(size: 12)).foregroundStyle(.white.opacity(0.65)).multilineTextAlignment(.center)
+                    }
                 } else {
                     VStack(alignment: .leading, spacing: 16) {
                         Label("Toggle Keep Awake     \(model.shortcut.label)", systemImage: "sun.max")
@@ -309,7 +318,7 @@ private struct TourPage: View {
                         Label("Hotspot Settings…", systemImage: "gearshape")
                     }.font(.system(size: 14))
                 }
-                Text("Practice changes only the preview. Approve Once installs real toggle permission.").font(.system(size: 12)).foregroundStyle(.white.opacity(0.55))
+                if step == 0 { Text("Practice changes only the preview.").font(.system(size: 12)).foregroundStyle(.white.opacity(0.65)) }
             } else if step == 2 {
                 ZStack {
                     RoundedRectangle(cornerRadius: 16).fill(model.lidClosed ? Color.black : cyan.opacity(0.22)).frame(height: 190)

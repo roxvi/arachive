@@ -1,4 +1,5 @@
 import Foundation
+import AppKit
 
 func XCTAssertEqual<T: Equatable>(_ actual: T, _ expected: T) { precondition(actual == expected) }
 func XCTAssertNil<T>(_ value: T?) { precondition(value == nil) }
@@ -26,7 +27,13 @@ struct PolicyTests {
         let defaults = UserDefaults(suiteName: suite)!
         defer { defaults.removePersistentDomain(forName: suite) }
         XCTAssertEqual(Shortcut.load(from: defaults), .standard)
-        XCTAssertEqual(Shortcut.standard.label, "⌃⌥⌘K")
+        XCTAssertEqual(Shortcut.standard.label, "⇧⌘K")
+        XCTAssertEqual(Shortcut.captured(keyCode: 40, flags: [.shift, .command]), .standard)
+        XCTAssertEqual(Shortcut.captured(keyCode: 0, flags: [.command, .shift])?.symbols, ["⇧", "⌘", "A"])
+        XCTAssertEqual(Shortcut.captured(keyCode: 0, flags: [.command, .capsLock])?.label, "⌘A")
+        XCTAssertNil(Shortcut.captured(keyCode: 0, flags: [.shift]))
+        XCTAssertNil(Shortcut.captured(keyCode: 53, flags: [.command]))
+        XCTAssertNil(Shortcut.captured(keyCode: 0, flags: [.command, .function]))
         let custom = Shortcut(keyCode: 0, modifiers: 256)
         XCTAssertTrue(custom.isValid)
         custom.save(to: defaults)
