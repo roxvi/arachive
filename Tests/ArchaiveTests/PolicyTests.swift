@@ -18,8 +18,29 @@ struct PolicyTests {
         tests.testCustomPasswordTransport()
         tests.testOnboardingNavigationAndDemoIsolation()
         tests.testSleepAccessRuleAndInstaller()
-        print("9 regression tests passed")
+        tests.testShortcutPreferences()
+        print("10 regression tests passed")
     }
+    func testShortcutPreferences() {
+        let suite = "Archaive.ShortcutTests.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suite)!
+        defer { defaults.removePersistentDomain(forName: suite) }
+        XCTAssertEqual(Shortcut.load(from: defaults), .standard)
+        XCTAssertEqual(Shortcut.standard.label, "⌃⌥⌘K")
+        let custom = Shortcut(keyCode: 0, modifiers: 256)
+        XCTAssertTrue(custom.isValid)
+        custom.save(to: defaults)
+        XCTAssertEqual(Shortcut.load(from: defaults), custom)
+        XCTAssertEqual(custom.label, "⌘A")
+        XCTAssertFalse(Shortcut(keyCode: 0, modifiers: 0).isValid)
+        XCTAssertFalse(Shortcut(keyCode: 0, modifiers: 512).isValid)
+        XCTAssertFalse(Shortcut(keyCode: 999, modifiers: 256).isValid)
+        defaults.set(Data("invalid".utf8), forKey: "keepAwakeShortcut")
+        XCTAssertEqual(Shortcut.load(from: defaults), .standard)
+        Shortcut.standard.save(to: defaults)
+        XCTAssertEqual(Shortcut.load(from: defaults), .standard)
+    }
+
     func testPowerStateParsingRejectsMissingOrMalformedState() {
         XCTAssertEqual(System.parseSleepDisabled("System-wide power settings:\n SleepDisabled\t\t0\n"), false)
         XCTAssertEqual(System.parseSleepDisabled(" SleepDisabled 1"), true)

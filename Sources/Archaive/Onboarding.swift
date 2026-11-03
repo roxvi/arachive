@@ -3,6 +3,7 @@ import SwiftUI
 import QuartzCore
 
 final class OnboardingModel: NSObject, ObservableObject {
+    @Published var shortcut = Shortcut.load()
     @Published var step = 0
     @Published var forward = true
     @Published var awake = false
@@ -14,6 +15,7 @@ final class OnboardingModel: NSObject, ObservableObject {
     @Published var authorizationStatus = "Approve once. Future keep-awake toggles need no password."
     @Published var authorizationBusy = false
     @Published var authorizationReady = false
+    var customizeShortcut: (() -> Void)?
     var authorize: (() -> Void)?
     @Published var target: CGPoint?
     var finish: (() -> Void)?
@@ -46,6 +48,7 @@ final class OnboardingController {
     var setup: (() -> Void)?
     var statusButton: (() -> NSStatusBarButton?)?
     var handoff: (() -> Void)?
+    var customizeShortcut: (() -> Void)?
     var authorize: (() -> Void)?
     var authorized: (() -> Bool)?
     private var escaping: Any?
@@ -58,6 +61,13 @@ final class OnboardingController {
         model.authorizationReady = authorized?() ?? false
         if model.authorizationReady { model.authorizationStatus = "Already approved. Toggles need no password." }
         model.authorize = { [weak self] in self?.authorize?() }
+        model.customizeShortcut = { [weak self] in
+            guard let self else { return }
+            self.window?.level = .normal
+            self.customizeShortcut?()
+            self.window?.level = .floating
+            self.window?.makeKeyAndOrderFront(nil)
+        }
         let panel = TakeoverWindow(contentRect: screen.frame, styleMask: .borderless, backing: .buffered, defer: false)
         panel.backgroundColor = .clear
         panel.isOpaque = false
@@ -222,13 +232,13 @@ private struct TourPage: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     private let cyan = Color(red: 0.43, green: 0.88, blue: 0.94)
     private let titles = ["Close the lid.\nKeep things going.", "A shortcut you won’t\ntype by accident.", "Lights down.\nWork still running.", "Wi-Fi left?\nBring your own.", "We live up here."]
-    private let bodies = [
+    private var bodies: [String] { [
         "Keep your Mac awake, dim its display when the lid closes, and reconnect to your hotspot when Wi-Fi drops. All from one tiny menu.",
-        "It’s an important setting, so we made the keybind hard to accidentally type 😉\n\nControl + Option + Command + K toggles keep awake. Approve administrator access once below. After that, toggles need no password.",
+        "It’s an important setting, so we made the keybind hard to accidentally type 😉\n\n\(model.shortcut.label) toggles keep awake. Customize it below or later from Keyboard Shortcut… in the menu. Approve administrator access once below. After that, toggles need no password.",
         "With keep awake enabled, closing the lid brings supported displays to zero brightness. Open it again and your previous brightness returns.\n\nArchaive doesn’t request screen sleep or lock. Your Mac’s other lock settings still apply. Keyboard lighting is unchanged.",
         "Set your hotspot’s exact Wi-Fi name, emoji included. Archaive waits for Wi-Fi to drop, then tries your hotspot. Keep it nearby and discoverable.\n\nUse Custom Password is useful for a non-Apple hotspot, or whenever macOS normally asks for a password. If macOS already remembers it, leave the toggle off.",
         "The menu bar. That’s the whole app.\n\nMoon means normal sleep. Sun means keep awake. Click it whenever you need us."
-    ]
+    ] }
 
     var body: some View {
         GeometryReader { geometry in
@@ -276,10 +286,11 @@ private struct TourPage: View {
                 Text(model.awake ? "Mac stays awake" : "Mac sleeps normally").font(.system(size: 24, weight: .semibold, design: .rounded))
                 if step == 1 {
                     HStack(spacing: 8) {
-                        ForEach(["⌃", "⌥", "⌘", "K"], id: \.self) { key in
+                        ForEach(model.shortcut.symbols, id: \.self) { key in
                             Text(key).font(.system(size: 29, weight: .medium)).frame(width: 58, height: 58).background(.white.opacity(0.09), in: RoundedRectangle(cornerRadius: 12))
                         }
-                    }.accessibilityLabel("Control Option Command K")
+                    }.accessibilityLabel(model.shortcut.label)
+                    Button("Customize shortcut…") { model.customizeShortcut?() }.buttonStyle(.plain)
                     Button("Try the toggle") { model.toggleSleep() }.buttonStyle(TourButton())
                     Button("Open interactive menu") { model.openMenu?() }.buttonStyle(.plain)
                     Divider()
@@ -291,7 +302,7 @@ private struct TourPage: View {
                     Text(model.practiced ? "That’s it. Only the preview changed." : "Press the shortcut, or use the button.").font(.system(size: 13)).foregroundStyle(cyan)
                 } else {
                     VStack(alignment: .leading, spacing: 16) {
-                        Label("Toggle Keep Awake     ⌃⌥⌘K", systemImage: "sun.max")
+                        Label("Toggle Keep Awake     \(model.shortcut.label)", systemImage: "sun.max")
                         Label("Fully Dim When Lid Closes", systemImage: "display")
                         Divider()
                         Label("Auto-Connect to Hotspot", systemImage: "wifi")

@@ -53,6 +53,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSWind
             self?.populateMenu(preview, preview: model)
             return preview
         }
+        onboarding.customizeShortcut = { [weak self] in self?.configureShortcut() }
         onboarding.authorize = { [weak self] in self?.setupSleepAccess() }
         onboarding.authorized = { SleepAccess.isInstalled }
         onboarding.setup = { [weak self] in self?.configureHotspot() }
@@ -90,9 +91,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSWind
         } else {
             item(awake ? "Mac stays awake" : "Mac sleeps normally")
         }
-        item("Toggle Keep Awake    ⌃⌥⌘K", #selector(toggleSleep), checked: awake)
+        item("Toggle Keep Awake    \(hotKey.shortcut.label)", #selector(toggleSleep), checked: awake)
             .isEnabled = preview != nil || (!busy && known)
         if !shortcutOK && preview == nil { item("Shortcut unavailable — another app may use it") }
+        if preview == nil { item("Keyboard Shortcut…", #selector(configureShortcut)) }
         item("Fully Dim When Lid Closes", #selector(toggleDimming), checked: preview?.dim ?? defaults.bool(forKey: "dimOnClose"))
         item(preview != nil ? "Lid open" : lastLid.map { $0 ? "Lid closed" : "Lid open" } ?? "Lid sensor unavailable")
         menu.addItem(.separator())
@@ -115,11 +117,56 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSWind
         item("Quit Archaive", #selector(quit)).isEnabled = !busy
     }
 
+    @objc private func configureShortcut() {
+        NSApp.activate(ignoringOtherApps: true)
+        let alert = NSAlert()
+        alert.messageText = "Keep Awake Shortcut"
+        alert.informativeText = "Choose a letter or number and at least one of Command, Option, or Control. Key names use the US keyboard layout."
+        alert.addButton(withTitle: "Save")
+        alert.addButton(withTitle: "Cancel")
+        alert.addButton(withTitle: "Restore Default")
+        let view = NSView(frame: NSRect(x: 0, y: 0, width: 360, height: 90))
+        let key = NSPopUpButton(frame: NSRect(x: 0, y: 54, width: 100, height: 26))
+        key.addItems(withTitles: Shortcut.keys.map { $0.0 })
+        key.selectItem(at: Shortcut.keys.firstIndex { $0.1 == hotKey.shortcut.keyCode } ?? 10)
+        key.setAccessibilityLabel("Shortcut key")
+        view.addSubview(key)
+        let modifiers = Shortcut.modifierKeys.enumerated().map { index, entry in
+            let button = NSButton(checkboxWithTitle: entry.0, target: nil, action: nil)
+            button.frame = NSRect(x: index % 2 * 180, y: index / 2 * 25, width: 175, height: 24)
+            button.state = hotKey.shortcut.modifiers & entry.2 != 0 ? .on : .off
+            view.addSubview(button)
+            return button
+        }
+        alert.accessoryView = view
+        while true {
+            let response = alert.runModal()
+            if response == .alertSecondButtonReturn { return }
+            let candidate = response == .alertThirdButtonReturn ? Shortcut.standard : Shortcut(
+                keyCode: Shortcut.keys[key.indexOfSelectedItem].1,
+                modifiers: zip(modifiers, Shortcut.modifierKeys).reduce(UInt32(0)) { $0 | ($1.0.state == .on ? $1.1.2 : 0) })
+            guard candidate.isValid else {
+                alert.informativeText = "Select at least one of Command, Option, or Control."
+                continue
+            }
+            guard hotKey.register(candidate) else {
+                alert.informativeText = "That shortcut is unavailable. Choose another combination. Your previous shortcut has been kept."
+                continue
+            }
+            candidate.save(to: defaults)
+            shortcutOK = true
+            onboarding.model.shortcut = candidate
+            updateIcon()
+            rebuildMenu()
+            return
+        }
+    }
+
     @objc private func replayOnboarding() { onboarding.present() }
 
     private func updateIcon() {
         guard let button = statusItem.button else { return }
-        button.toolTip = "Archaive · \(disabled ? "Awake" : "Normal sleep") · ⌃⌥⌘K"
+        button.toolTip = "Archaive · \(disabled ? "Awake" : "Normal sleep") · \(hotKey.shortcut.label)"
         statusIcon.update(button: button, awake: disabled)
     }
 
@@ -368,7 +415,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSWind
     }
 
     @objc private func about() {
-        showAlert("Archaive", "⌃⌥⌘K toggles keep awake, including with the lid closed. One-time setup asks for administrator access. After setup, toggles need no password.\n\nClosing the lid sets supported displays to zero brightness while keep awake is enabled. Opening the lid restores brightness. This does not request display sleep or lock the screen. This uses the lid switch, not hinge angle, and does not control keyboard lighting.\n\nQuit restores your previous sleep setting. Force Quit or a crash can leave sleep disabled; reopen Archaive to restore it. An awake Mac still uses battery and generates heat, so do not store it in a bag while enabled.")
+        showAlert("Archaive", "\(hotKey.shortcut.label) toggles keep awake, including with the lid closed. One-time setup asks for administrator access. After setup, toggles need no password.\n\nClosing the lid sets supported displays to zero brightness while keep awake is enabled. Opening the lid restores brightness. This does not request display sleep or lock the screen. This uses the lid switch, not hinge angle, and does not control keyboard lighting.\n\nQuit restores your previous sleep setting. Force Quit or a crash can leave sleep disabled; reopen Archaive to restore it. An awake Mac still uses battery and generates heat, so do not store it in a bag while enabled.")
     }
 
     private func showAlert(_ title: String, _ message: String) {
