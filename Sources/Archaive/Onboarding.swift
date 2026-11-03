@@ -8,8 +8,6 @@ final class OnboardingModel: NSObject, ObservableObject {
     @Published var step = 0
     @Published var forward = true
     @Published var awake = false
-    @Published var dim = true
-    @Published var hotspot = false
     @Published var lidClosed = false
     @Published var practiced = false
     @Published var setupStatus = "Optional. You can set this up later from the menu."
@@ -21,7 +19,6 @@ final class OnboardingModel: NSObject, ObservableObject {
     var authorize: (() -> Void)?
     @Published var target: CGPoint?
     var finish: (() -> Void)?
-    var openMenu: (() -> Void)?
     var setup: (() -> Void)?
     var locate: (() -> Void)?
 
@@ -31,9 +28,6 @@ final class OnboardingModel: NSObject, ObservableObject {
         if step == 4 { locate?() }
     }
     @objc func toggleSleep() { awake.toggle(); practiced = true }
-    @objc func toggleDimming() { dim.toggle() }
-    @objc func toggleHotspot() { hotspot.toggle() }
-    @objc func configureHotspot() { setupStatus = "Preview only. Set up your real hotspot in step 4." }
 }
 
 private final class TakeoverWindow: NSWindow {
@@ -46,7 +40,6 @@ final class OnboardingController {
     private(set) var model = OnboardingModel()
     private weak var previousWindow: NSWindow?
     var isPresented: Bool { window != nil }
-    var previewMenu: ((OnboardingModel) -> NSMenu)?
     var setup: (() -> Void)?
     var statusButton: (() -> NSStatusBarButton?)?
     var handoff: (() -> Void)?
@@ -75,7 +68,6 @@ final class OnboardingController {
         panel.level = .floating
         panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .stationary]
         model.finish = { [weak self] in self?.dismiss() }
-        model.openMenu = { [weak self] in self?.showPreviewMenu() }
         model.setup = { [weak self] in
             guard let self else { return }
             self.model.setupStatus = "Hotspot Settings is open. Save to enable, or close it to skip."
@@ -125,11 +117,6 @@ final class OnboardingController {
         model.setupStatus = saved ? "Hotspot saved. Automatic fallback is enabled." : "Nothing changed. Try again, or continue without a hotspot."
         window?.level = .floating
         window?.makeKeyAndOrderFront(nil)
-    }
-
-    private func showPreviewMenu() {
-        guard let window, let view = window.contentView, let menu = previewMenu?(model) else { return }
-        menu.popUp(positioning: nil, at: NSPoint(x: view.bounds.midX + 80, y: view.bounds.midY + 90), in: view)
     }
 
     private func locateIcon() {
@@ -271,7 +258,6 @@ private struct TourPage: View {
     @ViewBuilder private var stage: some View {
         VStack(spacing: step == 1 ? 20 : 24) {
             if step <= 1 {
-                Label("LIVE MENU PREVIEW", systemImage: "cursorarrow.click").font(.system(size: 11, weight: .medium, design: .monospaced)).foregroundStyle(cyan)
                 ZStack {
                     Image(systemName: "moon.fill").opacity(model.awake ? 0 : 1)
                     Image(systemName: "sun.max.fill").foregroundStyle(cyan).opacity(model.awake ? 1 : 0)
@@ -283,10 +269,14 @@ private struct TourPage: View {
                 .accessibilityLabel(model.awake ? "Keep awake on" : "Keep awake off")
                 Text(model.awake ? "Mac stays awake" : "Mac sleeps normally").font(.system(size: 24, weight: .semibold, design: .rounded))
                 if step == 1 {
+                    Text("We chose ⌃⌥⌘K because it’s hard to press by accident. Feel free to change it.")
+                        .font(.system(size: 13)).foregroundStyle(.white.opacity(0.78))
+                        .multilineTextAlignment(.center).fixedSize(horizontal: false, vertical: true)
                     VStack(spacing: 10) {
                         ShortcutRecorder(shortcut: model.shortcut, keySize: 50,
                             save: { model.saveShortcut?($0) },
                             recordingChanged: { model.recordingChanged?($0) })
+                            .frame(height: 50)
                         Text("Click to edit · Press your shortcut · Esc to cancel")
                             .font(.system(size: 12)).foregroundStyle(.white.opacity(0.65))
                     }
@@ -294,7 +284,6 @@ private struct TourPage: View {
                         Button("Try the toggle") { model.toggleSleep() }.buttonStyle(TourButton())
                         Text(model.practiced ? "That’s it. Only the preview changed." : "Practice here without changing your Mac.")
                             .font(.system(size: 12)).foregroundStyle(cyan)
-                        Button("Open interactive menu") { model.openMenu?() }.buttonStyle(.plain)
                     }
                     Divider()
                     VStack(spacing: 12) {
@@ -338,9 +327,9 @@ private struct TourPage: View {
                 Text("Custom passwords are stored in Keychain. Setting one may also update macOS’s saved Wi-Fi password.").font(.system(size: 12)).foregroundStyle(.white.opacity(0.6)).multilineTextAlignment(.center)
             } else {
                 HStack(spacing: 24) {
-                    Image(systemName: "moon.fill")
-                    Image(systemName: "sun.max.fill").foregroundStyle(cyan)
-                }.font(.system(size: 54))
+                    previewIcon(awake: model.awake)
+                    previewIcon(awake: !model.awake)
+                }
                 Text("Right here.\nWhenever you need it.").font(.system(size: 29, weight: .bold, design: .rounded)).multilineTextAlignment(.center)
                 if model.target == nil {
                     Text("Reveal the menu bar at the top of this screen to find Archaive. It may be hidden by your notch or menu bar manager.").font(.system(size: 14)).multilineTextAlignment(.center)
@@ -351,6 +340,34 @@ private struct TourPage: View {
         }.padding(28).frame(maxWidth: .infinity)
             .background(.white.opacity(0.045), in: RoundedRectangle(cornerRadius: 28))
             .overlay(RoundedRectangle(cornerRadius: 28).stroke(.white.opacity(0.12), lineWidth: 1))
+    }
+
+    private func previewIcon(awake: Bool) -> some View {
+        Button { model.toggleSleep() } label: {
+            ZStack {
+                Image(systemName: awake ? "sun.max.fill" : "moon.fill")
+                    .foregroundStyle(awake ? cyan : .white)
+                    .id(awake)
+                    .transition(reduceMotion ? .opacity : .scale(scale: 0.65).combined(with: .opacity))
+            }
+            .font(.system(size: 54)).frame(width: 72, height: 72)
+            .animation(reduceMotion ? .easeOut(duration: 0.12) : .spring(response: 0.3, dampingFraction: 0.6), value: awake)
+        }
+        .buttonStyle(TourIconButton())
+        .accessibilityLabel("Switch the sleep preview")
+        .accessibilityValue(awake ? "Sun, keep awake" : "Moon, normal sleep")
+        .help("Click to switch the preview. Your Mac’s sleep setting stays unchanged.")
+    }
+
+}
+
+private struct TourIconButton: ButtonStyle {
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .scaleEffect(reduceMotion ? 1 : configuration.isPressed ? 0.86 : 1)
+            .opacity(configuration.isPressed ? 0.8 : 1)
+            .animation(reduceMotion ? .easeOut(duration: 0.1) : .spring(response: 0.28, dampingFraction: 0.55), value: configuration.isPressed)
     }
 }
 

@@ -49,12 +49,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSWind
         timer = Timer.scheduledTimer(withTimeInterval: 1, repeats: true) { [weak self] _ in self?.checkLid() }
         updateIcon()
         rebuildMenu()
-        onboarding.previewMenu = { [weak self] model in
-            let preview = NSMenu()
-            preview.delegate = self
-            self?.populateMenu(preview, preview: model)
-            return preview
-        }
         onboarding.saveShortcut = { [weak self] in self?.saveShortcut($0) }
         onboarding.recordingShortcut = { [weak self] in self?.recordingShortcut($0) }
         onboarding.authorize = { [weak self] in self?.setupSleepAccess() }
@@ -77,47 +71,45 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSWind
 
     private func rebuildMenu() { populateMenu(menu) }
 
-    private func populateMenu(_ menu: NSMenu, preview: OnboardingModel? = nil) {
+    private func populateMenu(_ menu: NSMenu) {
         @discardableResult
         func item(_ title: String, _ action: Selector? = nil, checked: Bool? = nil) -> NSMenuItem {
             let row = NSMenuItem(title: title, action: action, keyEquivalent: "")
-            row.target = preview ?? self as AnyObject
+            row.target = self
+            row.isEnabled = action != nil
             if let checked { row.state = checked ? .on : .off }
             menu.addItem(row)
             return row
         }
+        menu.autoenablesItems = false
         menu.removeAllItems()
-        let awake = preview?.awake ?? disabled
-        if preview != nil { item("PREVIEW — no system changes") }
-        if preview == nil && busy {
+        let awake = disabled
+        if busy {
             item("Updating sleep setting…")
-        } else if preview == nil && !known {
+        } else if !known {
             item("Sleep setting unavailable")
         } else {
             item(awake ? "Mac stays awake" : "Mac sleeps normally")
         }
         let shortcutRow = NSMenuItem()
+        shortcutRow.isEnabled = !busy && known
         shortcutRow.view = ShortcutMenuRow(shortcut: hotKey.shortcut, awake: awake,
-            enabled: preview != nil || (!busy && known),
+            enabled: !busy && known,
             toggle: { [weak self, weak menu] in
                 menu?.cancelTracking()
-                if let preview { preview.toggleSleep() } else { self?.toggleSleep() }
+                self?.toggleSleep()
             }, edit: { [weak self, weak menu] in
                 menu?.cancelTracking()
                 DispatchQueue.main.async { self?.editShortcut() }
             })
         menu.addItem(shortcutRow)
-        if !shortcutOK && preview == nil { item("Shortcut unavailable — click to edit") }
-        item("Fully Dim When Lid Closes", #selector(toggleDimming), checked: preview?.dim ?? defaults.bool(forKey: "dimOnClose"))
-            .toolTip = preview != nil ? "Lid open" : lastLid.map { $0 ? "Lid closed" : "Lid open" } ?? "Lid sensor unavailable"
+        if !shortcutOK { item("Shortcut unavailable — click to edit") }
+        item("Fully Dim When Lid Closes", #selector(toggleDimming), checked: defaults.bool(forKey: "dimOnClose"))
+            .toolTip = lastLid.map { $0 ? "Lid closed" : "Lid open" } ?? "Lid sensor unavailable"
         menu.addItem(.separator())
-        item("Auto-Connect to Hotspot", #selector(toggleHotspot), checked: preview?.hotspot ?? defaults.bool(forKey: "hotspotEnabled"))
-            .toolTip = preview != nil ? "Your phone · Wi-Fi connected" : [defaults.string(forKey: "hotspotName"), networkStatus].compactMap { $0 }.joined(separator: " · ")
+        item("Auto-Connect to Hotspot", #selector(toggleHotspot), checked: defaults.bool(forKey: "hotspotEnabled"))
+            .toolTip = [defaults.string(forKey: "hotspotName"), networkStatus].compactMap { $0 }.joined(separator: " · ")
         item("Hotspot Settings…", #selector(configureHotspot))
-        if preview != nil {
-            item("Hotspot: Your phone 📱")
-            return
-        }
         menu.addItem(.separator())
         if defaults.object(forKey: "originalSleepDisabled") != nil {
             item("Restore Previous Sleep Setting", #selector(restoreSleep)).isEnabled = !busy
