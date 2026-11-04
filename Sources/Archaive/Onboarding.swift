@@ -204,9 +204,11 @@ private struct OnboardingView: View {
                             ForEach(0..<5) { index in
                                 Capsule().fill(index == model.step ? sunset : .white.opacity(0.22)).frame(width: index == model.step ? 28 : 8, height: 5)
                             }
-                        }.accessibilityLabel("Step \(model.step + 1) of 5")
+                        }
+                        .accessibilityLabel("Step \(model.step + 1) of 5")
+                        .animation(reduceMotion ? nil : .timingCurve(0.22, 0.8, 0.24, 1, duration: 0.38), value: model.step)
                         Spacer()
-                        Button(model.step == 4 ? "Got it. Open the menu." : "Continue") {
+                        Button(model.step == 4 ? "Finish" : "Continue") {
                             if model.step == 4 { model.finish?() } else { advance(1) }
                         }.buttonStyle(TourButton()).frame(width: 225, alignment: .trailing).keyboardShortcut(.defaultAction)
                     }.padding(.bottom, 8)
@@ -455,7 +457,7 @@ private struct MenuBarArrows: View {
                 var drawing = context
                 drawing.translateBy(x: start.x, y: start.y)
                 drawing.rotate(by: .radians(atan2(dy, dx)))
-                drawing.fill(arrow, with: .color(Color(red: 1, green: 0, blue: 0)))
+                drawing.fill(arrow, with: .color(Color(red: 1, green: 0.66, blue: 0.43)))
             }
         }
     }
