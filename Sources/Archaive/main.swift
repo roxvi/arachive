@@ -118,8 +118,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSWind
         item("Fully Dim When Lid Closes", #selector(toggleDimming), checked: defaults.bool(forKey: "dimOnClose"))
             .toolTip = lastLid.map { $0 ? "Lid closed" : "Lid open" } ?? "Lid sensor unavailable"
         menu.addItem(.separator())
-        item("Auto-Connect to Hotspot", #selector(toggleHotspot), checked: defaults.bool(forKey: "hotspotEnabled"))
-            .toolTip = [defaults.string(forKey: "hotspotName"), networkStatus].compactMap { $0 }.joined(separator: " · ")
+        let hotspotName = defaults.string(forKey: "hotspotName")
+        let hotspotTitle = hotspotName.map { "Auto-Connect to Hotspot · \($0)" } ?? "Auto-Connect to Hotspot"
+        item(hotspotTitle, #selector(toggleHotspot), checked: defaults.bool(forKey: "hotspotEnabled"))
+            .toolTip = networkStatus
         item("Hotspot Settings…", #selector(configureHotspot))
         menu.addItem(.separator())
         if defaults.object(forKey: "originalSleepDisabled") != nil {
