@@ -21,13 +21,13 @@ static NSBitmapImageRep *Render(CGFloat scale) {
   [NSGraphicsContext saveGraphicsState];
   [NSGraphicsContext setCurrentContext:[NSGraphicsContext graphicsContextWithCGContext:cg flipped:YES]];
 
-  NSColor *top = [NSColor colorWithCalibratedRed:0.98 green:0.99 blue:1 alpha:1];
-  NSColor *bottom = [NSColor colorWithCalibratedRed:0.88 green:0.94 blue:0.985 alpha:1];
+  NSColor *top = [NSColor colorWithCalibratedRed:1 green:0.97 blue:0.93 alpha:1];
+  NSColor *bottom = [NSColor colorWithCalibratedRed:1 green:0.83 blue:0.72 alpha:1];
   NSGradient *gradient = [[NSGradient alloc] initWithStartingColor:top endingColor:bottom];
   [gradient drawInRect:NSMakeRect(0, 0, 760, 480) angle:90];
 
-  NSColor *ink = [NSColor colorWithCalibratedRed:0.12 green:0.18 blue:0.24 alpha:1];
-  NSColor *muted = [NSColor colorWithCalibratedRed:0.37 green:0.44 blue:0.52 alpha:1];
+  NSColor *ink = [NSColor colorWithCalibratedRed:0.24 green:0.13 blue:0.10 alpha:1];
+  NSColor *muted = [NSColor colorWithCalibratedRed:0.48 green:0.30 blue:0.24 alpha:1];
   Label(@"ARCHAIVE", 40, 11, NSFontWeightSemibold, muted);
   Label(@"Drag Archaive to Applications", 69, 30, NSFontWeightSemibold, ink);
   Label(@"One drag. You're installed.", 112, 15, NSFontWeightRegular, muted);
