@@ -158,7 +158,7 @@ final class ShortcutRecordButton: NSButton {
             NSColor.labelColor.withAlphaComponent(0.09).setFill()
             NSBezierPath(roundedRect: rect, xRadius: keySize > 24 ? 10 : 5, yRadius: keySize > 24 ? 10 : 5).fill()
             if recording {
-                (message == nil ? NSColor.controlAccentColor : NSColor.systemRed).setStroke()
+                (message == nil ? NSColor(srgbRed: 1, green: 0.66, blue: 0.43, alpha: 1) : NSColor.systemRed).setStroke()
                 let border = NSBezierPath(roundedRect: rect.insetBy(dx: 1, dy: 1), xRadius: keySize > 24 ? 10 : 5, yRadius: keySize > 24 ? 10 : 5)
                 border.lineWidth = 2
                 border.stroke()

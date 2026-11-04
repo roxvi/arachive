@@ -168,14 +168,14 @@ private struct Backdrop: NSViewRepresentable {
 private struct OnboardingView: View {
     @ObservedObject var model: OnboardingModel
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    private let cyan = Color(red: 0.43, green: 0.88, blue: 0.94)
+    private let sunset = Color(red: 1, green: 0.66, blue: 0.43)
 
     var body: some View {
         GeometryReader { geometry in
             ZStack {
                 Backdrop()
                 Color.black.opacity(0.77)
-                RadialGradient(colors: [cyan.opacity(0.13), .clear], center: .trailing, startRadius: 0, endRadius: 700)
+                RadialGradient(colors: [sunset.opacity(0.18), Color(red: 0.65, green: 0.24, blue: 0.36).opacity(0.08), .clear], center: .trailing, startRadius: 0, endRadius: 700)
                 if model.step == 4, let target = model.target {
                     MenuBarArrows(target: target).allowsHitTesting(false).accessibilityHidden(true)
                 }
@@ -202,7 +202,7 @@ private struct OnboardingView: View {
                         Spacer()
                         HStack(spacing: 8) {
                             ForEach(0..<5) { index in
-                                Capsule().fill(index == model.step ? cyan : .white.opacity(0.22)).frame(width: index == model.step ? 28 : 8, height: 5)
+                                Capsule().fill(index == model.step ? sunset : .white.opacity(0.22)).frame(width: index == model.step ? 28 : 8, height: 5)
                             }
                         }.accessibilityLabel("Step \(model.step + 1) of 5")
                         Spacer()
@@ -223,7 +223,7 @@ private struct TourPage: View {
     @ObservedObject var model: OnboardingModel
     let step: Int
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    private let cyan = Color(red: 0.43, green: 0.88, blue: 0.94)
+    private let sunset = Color(red: 1, green: 0.66, blue: 0.43)
     private let titles = ["Close the lid.\nKeep things going.", "A shortcut you won’t\ntype by accident.", "Lights down.\nWork still running.", "Wi-Fi left?\nBring your own.", "We live up here."]
     private var bodies: [String] { [
         "Keep your Mac awake, dim its display when the lid closes, and reconnect to your hotspot when Wi-Fi drops. All from one tiny menu.",
@@ -256,7 +256,7 @@ private struct TourPage: View {
     private var copy: some View {
         VStack(alignment: .leading, spacing: 22) {
             Text(["MEET ARCHAIVE", "TRY IT SAFELY", "FULL DIM, STILL AWAKE", "YOUR FIRST SETUP", "ALWAYS WITHIN REACH"][step])
-                .font(.system(size: 12, weight: .medium, design: .monospaced)).foregroundStyle(cyan)
+                .font(.system(size: 12, weight: .medium, design: .monospaced)).foregroundStyle(sunset)
             Text(titles[step]).font(.system(size: 44, weight: .bold, design: .rounded)).fixedSize(horizontal: false, vertical: true)
             Text(bodies[step]).font(.system(size: 16)).foregroundStyle(.white.opacity(0.78)).lineSpacing(5).fixedSize(horizontal: false, vertical: true)
             if step == 0 { Text("An awake Mac still uses battery and produces heat. Don’t put it in a bag while keep awake is on.").font(.system(size: 12)).foregroundStyle(.white.opacity(0.6)) }
@@ -267,7 +267,7 @@ private struct TourPage: View {
         VStack(spacing: step == 1 ? 20 : 24) {
             if step <= 1 {
                 MorphSleepIcon(progress: model.awake ? 1 : 0)
-                    .foregroundStyle(model.awake ? cyan : .white)
+                    .foregroundStyle(model.awake ? sunset : .white)
                     .frame(width: 90, height: 80)
                     .animation(reduceMotion ? nil : .easeInOut(duration: 0.45), value: model.awake)
                     .accessibilityLabel(model.awake ? "Keep awake on" : "Keep awake off")
@@ -287,17 +287,17 @@ private struct TourPage: View {
                     VStack(spacing: 12) {
                         Button("Try the toggle") { model.toggleSleep() }.buttonStyle(TourButton())
                         Text(model.practiced ? "That’s it. Only the preview changed." : "Practice here without changing your Mac.")
-                            .font(.system(size: 12)).foregroundStyle(cyan)
+                            .font(.system(size: 12)).foregroundStyle(sunset)
                     }
                     Divider()
                     VStack(spacing: 12) {
                         if model.authorizationReady {
                             Label("Administrator access approved", systemImage: "checkmark.circle.fill")
-                                .font(.system(size: 14, weight: .medium)).foregroundStyle(cyan)
+                                .font(.system(size: 14, weight: .medium)).foregroundStyle(sunset)
                         } else {
                             Button("Approve Once") { model.authorize?() }
                                 .buttonStyle(TourButton()).disabled(model.authorizationBusy)
-                            Text(model.authorizationStatus).font(.system(size: 13)).foregroundStyle(cyan).multilineTextAlignment(.center)
+                            Text(model.authorizationStatus).font(.system(size: 13)).foregroundStyle(sunset).multilineTextAlignment(.center)
                         }
                         Text("Allows only the keep-awake on/off commands without a password. No password is stored. Remove access from the menu after restoring sleep.")
                             .font(.system(size: 12)).foregroundStyle(.white.opacity(0.65)).multilineTextAlignment(.center)
@@ -314,7 +314,7 @@ private struct TourPage: View {
                 if step == 0 { Text("Practice changes only the preview.").font(.system(size: 12)).foregroundStyle(.white.opacity(0.65)) }
             } else if step == 2 {
                 ZStack {
-                    RoundedRectangle(cornerRadius: 16).fill(model.lidClosed ? Color.black : cyan.opacity(0.22)).frame(height: 190)
+                    RoundedRectangle(cornerRadius: 16).fill(model.lidClosed ? Color.black : sunset.opacity(0.22)).frame(height: 190)
                     VStack(spacing: 12) {
                         Image(systemName: "laptopcomputer").font(.system(size: 64))
                         Text(model.lidClosed ? "Brightness 0% · still awake" : "Your brightness · restored").font(.system(size: 13, design: .monospaced))
@@ -324,10 +324,10 @@ private struct TourPage: View {
                 Button(model.lidClosed ? "Open the preview lid" : "Close the preview lid") { model.lidClosed.toggle() }.buttonStyle(TourButton())
                 Text("Simulation. Your actual display stays unchanged.").font(.system(size: 12)).foregroundStyle(.white.opacity(0.6))
             } else if step == 3 {
-                Image(systemName: "personalhotspot").font(.system(size: 65)).foregroundStyle(cyan)
+                Image(systemName: "personalhotspot").font(.system(size: 65)).foregroundStyle(sunset)
                 Text("One less dropped connection.").font(.system(size: 25, weight: .semibold, design: .rounded)).multilineTextAlignment(.center)
                 Button("Set Up My Hotspot") { model.setup?() }.buttonStyle(TourButton())
-                Text(model.setupStatus).font(.system(size: 14)).foregroundStyle(cyan).multilineTextAlignment(.center).accessibilityAddTraits(.updatesFrequently)
+                Text(model.setupStatus).font(.system(size: 14)).foregroundStyle(sunset).multilineTextAlignment(.center).accessibilityAddTraits(.updatesFrequently)
                 Text("Custom passwords are stored in Keychain. Setting one may also update macOS’s saved Wi-Fi password.").font(.system(size: 12)).foregroundStyle(.white.opacity(0.6)).multilineTextAlignment(.center)
             } else {
                 HStack(spacing: 24) {
@@ -335,7 +335,7 @@ private struct TourPage: View {
                     previewIcon(awake: true)
                 }
                 Text(model.actualBusy ? "Updating sleep setting…" : model.actualAwake.map { $0 ? "Mac stays awake" : "Mac sleeps normally" } ?? "Checking sleep setting…")
-                    .font(.system(size: 13)).foregroundStyle(cyan)
+                    .font(.system(size: 13)).foregroundStyle(sunset)
                 if !model.authorizationReady {
                     Text(model.authorizationStatus).font(.system(size: 12)).foregroundStyle(.white.opacity(0.78)).multilineTextAlignment(.center)
                 }
@@ -354,7 +354,7 @@ private struct TourPage: View {
     private func previewIcon(awake: Bool) -> some View {
         Button { model.selectSleepMode(awake: awake) } label: {
             Image(systemName: awake ? "sun.max.fill" : "moon.fill")
-                .foregroundStyle(awake ? cyan : .white)
+                .foregroundStyle(awake ? sunset : .white)
                 .font(.system(size: 54)).frame(width: 72, height: 72)
                 .opacity(model.actualAwake == awake ? 1 : 0.45)
                 .animation(.easeOut(duration: 0.15), value: model.actualAwake)
@@ -416,7 +416,7 @@ private struct TourButton: ButtonStyle {
     func makeBody(configuration: Configuration) -> some View {
         configuration.label.font(.system(size: 14, weight: .semibold)).foregroundStyle(.black)
             .padding(.horizontal, 22).padding(.vertical, 13)
-            .background(Color(red: 0.65, green: 0.94, blue: 0.97).opacity(configuration.isPressed ? 0.75 : 1), in: Capsule())
+            .background(Color(red: 1, green: 0.72, blue: 0.52).opacity(configuration.isPressed ? 0.75 : 1), in: Capsule())
             .scaleEffect(configuration.isPressed && !reduceMotion ? 0.97 : 1)
             .animation(.easeOut(duration: 0.14), value: configuration.isPressed)
     }
