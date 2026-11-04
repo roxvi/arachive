@@ -22,6 +22,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSWind
     private var customPasswordToggle: NSButton?
     private var customPasswordInput: NSSecureTextField?
     private var networkStatus = "Checking Wi-Fi…"
+    private var pendingOnboardingMode: Bool?
     private var shortcutOK = false
     private var menu: NSMenu!
 
@@ -53,6 +54,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSWind
         onboarding.recordingShortcut = { [weak self] in self?.recordingShortcut($0) }
         onboarding.authorize = { [weak self] in self?.setupSleepAccess() }
         onboarding.authorized = { SleepAccess.isInstalled }
+        onboarding.currentMode = { [weak self] in guard let self, self.known else { return nil }; return self.disabled }
+        onboarding.changeMode = { [weak self] awake in
+            guard let self, !self.busy, self.known, self.disabled != awake else { return }
+            guard SleepAccess.isInstalled else { self.pendingOnboardingMode = awake; self.setupSleepAccess(); return }
+            self.changeSleep(to: awake, restoring: false)
+        }
         onboarding.setup = { [weak self] in self?.configureHotspot() }
         onboarding.statusButton = { [weak self] in self?.statusItem.button }
         onboarding.handoff = { [weak self] in self?.statusItem.button?.performClick(nil) }
@@ -69,7 +76,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSWind
         if menu === self.menu { rebuildMenu(); refreshSleep() }
     }
 
-    private func rebuildMenu() { populateMenu(menu) }
+    private func rebuildMenu() {
+        onboarding.model.actualBusy = busy
+        onboarding.model.actualAwake = known ? disabled : nil
+        populateMenu(menu)
+    }
 
     private func populateMenu(_ menu: NSMenu) {
         @discardableResult
@@ -148,6 +159,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSWind
     @objc private func replayOnboarding() { onboarding.present() }
 
     private func updateIcon() {
+        onboarding.model.actualAwake = known ? disabled : nil
         guard let button = statusItem.button else { return }
         button.toolTip = "Archaive · \(disabled ? "Awake" : "Normal sleep") · \(hotKey.shortcut.label)"
         statusIcon.update(button: button, awake: disabled)
@@ -183,6 +195,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSWind
                 self.busy = false
                 let message = result.status == 0 ? "Ready. Keep-awake toggles no longer ask for your password." : "Setup cancelled or failed. You can retry. " + result.output
                 self.onboarding.authorizationFinished(success: result.status == 0, message: message)
+                if let requested = self.pendingOnboardingMode {
+                    self.pendingOnboardingMode = nil
+                    if result.status == 0 { self.changeSleep(to: requested, restoring: false) }
+                }
                 if !self.onboarding.isPresented { self.showAlert(result.status == 0 ? "One-time setup complete" : "Setup not completed", message) }
                 self.rebuildMenu()
             }

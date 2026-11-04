@@ -7,6 +7,9 @@ final class OnboardingModel: NSObject, ObservableObject {
     var recordingShortcut = false
     @Published var step = 0
     @Published var forward = true
+    @Published var actualAwake: Bool?
+    @Published var actualBusy = false
+    var changeMode: ((Bool) -> Void)?
     @Published var awake = false
     @Published var lidClosed = false
     @Published var practiced = false
@@ -28,7 +31,7 @@ final class OnboardingModel: NSObject, ObservableObject {
         if step == 4 { locate?() }
     }
     @objc func toggleSleep() { awake.toggle(); practiced = true }
-    func selectSleepMode(awake: Bool) { self.awake = awake; practiced = true }
+    func selectSleepMode(awake: Bool) { guard !actualBusy else { return }; changeMode?(awake) }
 }
 
 private final class TakeoverWindow: NSWindow {
@@ -48,6 +51,8 @@ final class OnboardingController {
     var recordingShortcut: ((Bool) -> Void)?
     var authorize: (() -> Void)?
     var authorized: (() -> Bool)?
+    var currentMode: (() -> Bool?)?
+    var changeMode: ((Bool) -> Void)?
     private var escaping: Any?
 
     func present() {
@@ -55,6 +60,8 @@ final class OnboardingController {
         guard let screen = statusButton?()?.window?.screen ?? NSApp.keyWindow?.screen ?? NSScreen.main else { return }
         previousWindow = NSApp.keyWindow
         model = OnboardingModel()
+        model.actualAwake = currentMode?()
+        model.changeMode = { [weak self] in self?.changeMode?($0) }
         model.authorizationReady = authorized?() ?? false
         if model.authorizationReady { model.authorizationStatus = "Already approved. Toggles need no password." }
         model.authorize = { [weak self] in self?.authorize?() }
@@ -259,15 +266,11 @@ private struct TourPage: View {
     @ViewBuilder private var stage: some View {
         VStack(spacing: step == 1 ? 20 : 24) {
             if step <= 1 {
-                ZStack {
-                    Image(systemName: "moon.fill").opacity(model.awake ? 0 : 1)
-                    Image(systemName: "sun.max.fill").foregroundStyle(cyan).opacity(model.awake ? 1 : 0)
-                }
-                .font(.system(size: 65))
-                .frame(width: 90, height: 80)
-                .scaleEffect(reduceMotion || !model.awake ? 1 : 1.06)
-                .animation(.easeInOut(duration: reduceMotion ? 0.12 : 0.28), value: model.awake)
-                .accessibilityLabel(model.awake ? "Keep awake on" : "Keep awake off")
+                MorphSleepIcon(progress: model.awake ? 1 : 0)
+                    .foregroundStyle(model.awake ? cyan : .white)
+                    .frame(width: 90, height: 80)
+                    .animation(reduceMotion ? nil : .easeInOut(duration: 0.45), value: model.awake)
+                    .accessibilityLabel(model.awake ? "Keep awake on" : "Keep awake off")
                 Text(model.awake ? "Mac stays awake" : "Mac sleeps normally").font(.system(size: 24, weight: .semibold, design: .rounded))
                 if step == 1 {
                     Text("We chose ⌃⌥⌘K because it’s hard to press by accident. Feel free to change it.")
@@ -331,6 +334,11 @@ private struct TourPage: View {
                     previewIcon(awake: false)
                     previewIcon(awake: true)
                 }
+                Text(model.actualBusy ? "Updating sleep setting…" : model.actualAwake.map { $0 ? "Mac stays awake" : "Mac sleeps normally" } ?? "Checking sleep setting…")
+                    .font(.system(size: 13)).foregroundStyle(cyan)
+                if !model.authorizationReady {
+                    Text(model.authorizationStatus).font(.system(size: 12)).foregroundStyle(.white.opacity(0.78)).multilineTextAlignment(.center)
+                }
                 Text("Right here.\nWhenever you need it.").font(.system(size: 29, weight: .bold, design: .rounded)).multilineTextAlignment(.center)
                 if model.target == nil {
                     Text("Reveal the menu bar at the top of this screen to find Archaive. It may be hidden by your notch or menu bar manager.").font(.system(size: 14)).multilineTextAlignment(.center)
@@ -348,16 +356,49 @@ private struct TourPage: View {
             Image(systemName: awake ? "sun.max.fill" : "moon.fill")
                 .foregroundStyle(awake ? cyan : .white)
                 .font(.system(size: 54)).frame(width: 72, height: 72)
-                .opacity(model.awake == awake ? 1 : 0.45)
-                .animation(.easeOut(duration: 0.15), value: model.awake)
+                .opacity(model.actualAwake == awake ? 1 : 0.45)
+                .animation(.easeOut(duration: 0.15), value: model.actualAwake)
         }
+        .disabled(model.actualBusy || model.actualAwake == nil)
         .buttonStyle(TourIconButton())
-        .accessibilityLabel(awake ? "Preview keep awake" : "Preview normal sleep")
-        .accessibilityValue(model.awake == awake ? "Selected" : "Not selected")
-        .accessibilityAddTraits(model.awake == awake ? .isSelected : [])
-        .help("Select this preview mode. Your Mac’s sleep setting stays unchanged.")
+        .accessibilityLabel(awake ? "Keep this Mac awake" : "Restore normal sleep")
+        .accessibilityValue(model.actualAwake == awake ? "Selected" : "Not selected")
+        .accessibilityAddTraits(model.actualAwake == awake ? .isSelected : [])
+        .help("Select this Mac’s sleep mode.")
     }
 
+}
+
+private struct MorphSleepIcon: View, Animatable {
+    var progress: Double
+    var animatableData: Double {
+        get { progress }
+        set { progress = newValue }
+    }
+    var body: some View {
+        Canvas { context, size in
+            let scale = min(size.width, size.height) / 18
+            context.translateBy(x: (size.width - 18 * scale) / 2, y: (size.height - 18 * scale) / 2)
+            context.scaleBy(x: scale, y: scale)
+            let radius = 6 - progress * 1.5
+            context.drawLayer { disc in
+                disc.fill(Path(ellipseIn: CGRect(x: 9 - radius, y: 9 - radius, width: radius * 2, height: radius * 2)), with: .foreground)
+                disc.blendMode = .destinationOut
+                let offset = 3 + progress * 10
+                disc.fill(Path(ellipseIn: CGRect(x: 9 + offset - 5.7, y: 7 - 5.7, width: 11.4, height: 11.4)), with: .color(.black))
+            }
+            let rays = max(0, (progress - 0.3) / 0.7)
+            if rays > 0 {
+                var path = Path()
+                for index in 0..<8 {
+                    let angle = Double(index) * .pi / 4 + (1 - progress) * .pi / 8
+                    path.move(to: CGPoint(x: 9 + cos(angle) * 6.2, y: 9 + sin(angle) * 6.2))
+                    path.addLine(to: CGPoint(x: 9 + cos(angle) * (6.2 + 1.5 * rays), y: 9 + sin(angle) * (6.2 + 1.5 * rays)))
+                }
+                context.stroke(path, with: .foreground, style: StrokeStyle(lineWidth: 1.4 * rays, lineCap: .round))
+            }
+        }
+    }
 }
 
 private struct TourIconButton: ButtonStyle {

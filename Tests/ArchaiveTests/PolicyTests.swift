@@ -207,14 +207,15 @@ struct PolicyTests {
         first.move(20)
         XCTAssertEqual(first.step, 4)
         XCTAssertTrue(located)
+        var requestedModes: [Bool] = []
+        first.changeMode = { requestedModes.append($0) }
         first.selectSleepMode(awake: false)
-        XCTAssertFalse(first.awake)
+        first.selectSleepMode(awake: true)
+        XCTAssertEqual(requestedModes, [false, true])
+        XCTAssertTrue(first.awake) // Real selections wait for confirmed system state.
+        first.actualBusy = true
         first.selectSleepMode(awake: false)
-        XCTAssertFalse(first.awake)
-        first.selectSleepMode(awake: true)
-        XCTAssertTrue(first.awake)
-        first.selectSleepMode(awake: true)
-        XCTAssertTrue(first.awake)
+        XCTAssertEqual(requestedModes, [false, true])
         XCTAssertFalse(second.awake)
         first.move(-1)
         XCTAssertEqual(first.step, 3)
