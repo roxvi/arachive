@@ -28,6 +28,7 @@ final class OnboardingModel: NSObject, ObservableObject {
         if step == 4 { locate?() }
     }
     @objc func toggleSleep() { awake.toggle(); practiced = true }
+    func selectSleepMode(awake: Bool) { self.awake = awake; practiced = true }
 }
 
 private final class TakeoverWindow: NSWindow {
@@ -176,7 +177,7 @@ private struct OnboardingView: View {
                         Spacer()
                         Text(String(format: "%02d / 05", model.step + 1)).font(.system(size: 13, design: .monospaced)).foregroundStyle(.white.opacity(0.65))
                         Button("Skip") { model.finish?() }.buttonStyle(.plain).padding(.leading, 20)
-                    }.padding(.top, 24)
+                    }.padding(.top, 40)
                     GeometryReader { viewport in
                         HStack(spacing: 0) {
                             ForEach(0..<5) { step in
@@ -327,8 +328,8 @@ private struct TourPage: View {
                 Text("Custom passwords are stored in Keychain. Setting one may also update macOS’s saved Wi-Fi password.").font(.system(size: 12)).foregroundStyle(.white.opacity(0.6)).multilineTextAlignment(.center)
             } else {
                 HStack(spacing: 24) {
-                    previewIcon(awake: model.awake)
-                    previewIcon(awake: !model.awake)
+                    previewIcon(awake: false)
+                    previewIcon(awake: true)
                 }
                 Text("Right here.\nWhenever you need it.").font(.system(size: 29, weight: .bold, design: .rounded)).multilineTextAlignment(.center)
                 if model.target == nil {
@@ -343,20 +344,18 @@ private struct TourPage: View {
     }
 
     private func previewIcon(awake: Bool) -> some View {
-        Button { model.toggleSleep() } label: {
-            ZStack {
-                Image(systemName: awake ? "sun.max.fill" : "moon.fill")
-                    .foregroundStyle(awake ? cyan : .white)
-                    .id(awake)
-                    .transition(reduceMotion ? .opacity : .scale(scale: 0.65).combined(with: .opacity))
-            }
-            .font(.system(size: 54)).frame(width: 72, height: 72)
-            .animation(reduceMotion ? .easeOut(duration: 0.12) : .spring(response: 0.3, dampingFraction: 0.6), value: awake)
+        Button { model.selectSleepMode(awake: awake) } label: {
+            Image(systemName: awake ? "sun.max.fill" : "moon.fill")
+                .foregroundStyle(awake ? cyan : .white)
+                .font(.system(size: 54)).frame(width: 72, height: 72)
+                .opacity(model.awake == awake ? 1 : 0.45)
+                .animation(.easeOut(duration: 0.15), value: model.awake)
         }
         .buttonStyle(TourIconButton())
-        .accessibilityLabel("Switch the sleep preview")
-        .accessibilityValue(awake ? "Sun, keep awake" : "Moon, normal sleep")
-        .help("Click to switch the preview. Your Mac’s sleep setting stays unchanged.")
+        .accessibilityLabel(awake ? "Preview keep awake" : "Preview normal sleep")
+        .accessibilityValue(model.awake == awake ? "Selected" : "Not selected")
+        .accessibilityAddTraits(model.awake == awake ? .isSelected : [])
+        .help("Select this preview mode. Your Mac’s sleep setting stays unchanged.")
     }
 
 }
