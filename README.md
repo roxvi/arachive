@@ -46,6 +46,18 @@ Packaging requires Python 3 and downloads pinned `dmgbuild` dependencies into an
 
 In **Hotspot Settings…**, enable **Use Custom Password** to enter a password directly. It is stored as an app-specific Keychain item for that exact Wi-Fi name. Leave the field blank to reuse the stored custom password for that name. With the toggle off, Archaive omits the password and uses macOS’s saved credentials. Custom passwords are passed to `networksetup` through standard input, never command-line arguments or UserDefaults. A successful join may update macOS’s saved Wi-Fi password as well.
 
+## Share your Mac screen to your phone
+
+Choose **Share Screen to Phone…** from the menu, then **Start Sharing**. Approve macOS Screen Recording permission (and Local Network access if requested). Connect your phone and Mac to the same Wi-Fi or phone hotspot, then scan the QR code with your phone camera. You can also copy the session link or open one of the displayed addresses in Safari/Chrome. If macOS requires a relaunch after granting capture permission, quit normally and reopen Archaive.
+
+The phone viewer is a web app for iPhone and Android; no native companion installation is required. Add it to your Home Screen from your browser if desired. Links belong to the current sharing session, so scan a fresh link after restarting sharing. The viewer fits the display by default; **Actual size** lets you scroll around the captured image. Sharing is view-only, without audio, keyboard, or touch control, at up to 10 frames per second and 1280 pixels wide.
+
+**Fully Dim When Lid Closes** continues to dim the physical Mac display. Sharing captures the desktop through ScreenCaptureKit before panel brightness, so the phone image retains its normal brightness. Phone brightness remains under your phone’s control. For closed-lid use, enable keep awake first. macOS must still expose an active display; this does not create a virtual monitor, bypass a locked screen, or prevent macOS from removing a display. If capture is unavailable, the viewer hides the image and reports the connection problem.
+
+Sharing starts only on request. Anyone holding the random session link can view the screen over an **unencrypted local HTTP connection**: use a trusted network. No cloud relay or account is involved. **Stop Phone Sharing**, locking/switching away from the Mac session, or quitting ends sharing and invalidates the link. Closing the setup window leaves an active share running, with a stop action in the menu. If a link fails, try another displayed address, check Local Network/firewall permissions, and check whether the Wi-Fi/hotspot isolates devices. Restart sharing after changing networks.
+
+Automated checks cover session routing, expired/wrong links, and existing brightness restoration. Screen Recording approval, phone connectivity, QR scanning, and capture with the lid closed and panel at zero brightness require a live hardware check.
+
 ## Restoring sleep
 
 Quit restores the sleep setting that existed before Archaive changed it. If setup is missing or restoration fails, the app stays open so you can retry. Force Quit, a crash, or a power loss can leave this system-wide setting enabled. On the next launch, Archaive offers **Restore Previous Sleep Setting**. To re-enable sleep manually:

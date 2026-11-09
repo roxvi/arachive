@@ -22,8 +22,25 @@ struct PolicyTests {
         tests.testShortcutPreferences()
         tests.testShortcutRecordingLifecycle()
         tests.testShortcutResponderRouting()
-        print("12 regression tests passed")
+        tests.testPhoneSharingSessionIsolation()
+        print("13 regression tests passed")
     }
+    func testPhoneSharingSessionIsolation() {
+        func route(_ request: String, token: String = "current") -> PhoneShareHTTP.Route {
+            PhoneShareHTTP.route(Data(request.utf8), token: token)
+        }
+        XCTAssertEqual(route("GET /current/ HTTP/1.1\r\nHost: mac\r\n\r\n"), .page)
+        XCTAssertEqual(route("GET /current/frame HTTP/1.1\r\n\r\n"), .frame)
+        for path in ["/", "/old/frame", "/current/frame?token=old", "/current/../frame", "/current/frame/", "http://mac/current/frame"] {
+            XCTAssertEqual(route("GET \(path) HTTP/1.1\r\n\r\n"), .missing)
+        }
+        XCTAssertEqual(route("POST /current/frame HTTP/1.1\r\n\r\n"), .missing)
+        XCTAssertEqual(route("GET /current/frame HTTP/1.1\r\n\r\n", token: "next-session"), .missing)
+        XCTAssertEqual(route("GET  /current/frame HTTP/1.1\r\n\r\n"), .missing)
+        XCTAssertEqual(route("GET /current/frame HTTP/9.9\r\n\r\n"), .missing)
+        XCTAssertEqual(PhoneShareHTTP.route(Data([0xff]), token: "current"), .missing)
+    }
+
     func testShortcutRecordingLifecycle() {
         _ = NSApplication.shared
         let recorder = ShortcutRecordButton()

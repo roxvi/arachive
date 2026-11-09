@@ -1,4 +1,5 @@
 import AppKit
+import CoreImage
 
 final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSWindowDelegate {
     private let defaults = UserDefaults.standard
@@ -16,6 +17,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSWind
     private var terminating = false
     private var lastLid: Bool?
     private let brightness = DisplayBrightness()
+    private let phoneShare = PhoneShare()
+    private var phoneShareWindow: NSWindow?
+    private var phoneShareLinks: NSTextView?
+    private var phoneShareButton: NSButton?
+    private var phoneShareQR: NSImageView?
     private var hotspotWindow: NSWindow?
     private var hotspotInput: NSTextField?
     private var hotspotError: NSTextField?
@@ -33,6 +39,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSWind
             exit(0)
         }
         installEditMenu()
+        phoneShare.changed = { [weak self] in self?.updatePhoneShare() }
+        phoneShare.failed = { [weak self] in self?.showAlert("Phone sharing unavailable", $0) }
+        DistributedNotificationCenter.default().addObserver(self, selector: #selector(stopPhoneShare), name: NSNotification.Name("com.apple.screenIsLocked"), object: nil)
+        NSWorkspace.shared.notificationCenter.addObserver(self, selector: #selector(stopPhoneShare), name: NSWorkspace.sessionDidResignActiveNotification, object: nil)
         brightness.rememberDisplays()
         defaults.register(defaults: ["dimOnClose": true])
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
@@ -118,6 +128,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSWind
         item("Fully Dim When Lid Closes", #selector(toggleDimming), checked: defaults.bool(forKey: "dimOnClose"))
             .toolTip = lastLid.map { $0 ? "Lid closed" : "Lid open" } ?? "Lid sensor unavailable"
         menu.addItem(.separator())
+        item(phoneShare.active ? "Sharing Screen to Phone…" : "Share Screen to Phone…", #selector(showPhoneShare))
+        if phoneShare.active || phoneShare.starting { item("Stop Phone Sharing", #selector(stopPhoneShare)) }
+        menu.addItem(.separator())
         let hotspotName = defaults.string(forKey: "hotspotName")
         let hotspotTitle = hotspotName.map { "Auto-Connect to Hotspot · \($0)" } ?? "Auto-Connect to Hotspot"
         item(hotspotTitle, #selector(toggleHotspot), checked: defaults.bool(forKey: "hotspotEnabled"))
@@ -133,6 +146,79 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSWind
         item("About Archaive…", #selector(about))
         item("Quit Archaive", #selector(quit)).isEnabled = !busy
     }
+
+    @objc private func showPhoneShare() {
+        NSApp.activate(ignoringOtherApps: true)
+        if let window = phoneShareWindow { window.makeKeyAndOrderFront(nil); return }
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 500, height: 330), styleMask: [.titled, .closable], backing: .buffered, defer: false)
+        window.title = "Share your Mac to your phone"
+        window.isReleasedWhenClosed = false
+        let help = NSTextField(wrappingLabelWithString: "Connect your phone and Mac to the same Wi-Fi or phone hotspot. Start sharing, then scan the QR code or open a link in Safari or Chrome on your phone. You can add the viewer to your Home Screen.")
+        help.frame = NSRect(x: 20, y: 229, width: 460, height: 80)
+        window.contentView?.addSubview(help)
+        let scroll = NSScrollView(frame: NSRect(x: 20, y: 115, width: 310, height: 105))
+        scroll.hasVerticalScroller = true
+        let links = NSTextView(frame: scroll.bounds)
+        links.isEditable = false
+        links.isSelectable = true
+        links.font = .systemFont(ofSize: 14)
+        links.textContainer?.widthTracksTextView = true
+        links.autoresizingMask = [.width]
+        scroll.documentView = links
+        window.contentView?.addSubview(scroll)
+        let qr = NSImageView(frame: NSRect(x: 365, y: 115, width: 115, height: 115))
+        qr.imageScaling = .scaleProportionallyUpOrDown
+        qr.setAccessibilityLabel("Scan with your phone camera to open the screen viewer")
+        window.contentView?.addSubview(qr)
+        phoneShareQR = qr
+        let copy = NSButton(title: "Copy Link", target: self, action: #selector(copyPhoneShareLink))
+        copy.frame = NSRect(x: 20, y: 12, width: 120, height: 32)
+        copy.bezelStyle = .rounded
+        window.contentView?.addSubview(copy)
+        let note = NSTextField(wrappingLabelWithString: "View only. Physical dimming stays on. Anyone with the link can view your screen over this unencrypted local connection; use a trusted network. Locking your Mac stops sharing.")
+        note.font = .systemFont(ofSize: NSFont.smallSystemFontSize)
+        note.textColor = .secondaryLabelColor
+        note.frame = NSRect(x: 20, y: 55, width: 460, height: 53)
+        window.contentView?.addSubview(note)
+        let button = NSButton(title: "Start Sharing", target: self, action: #selector(togglePhoneShare))
+        button.frame = NSRect(x: 320, y: 12, width: 160, height: 32)
+        button.bezelStyle = .rounded
+        window.contentView?.addSubview(button)
+        phoneShareWindow = window
+        phoneShareLinks = links
+        phoneShareButton = button
+        updatePhoneShare()
+        window.center()
+        window.makeKeyAndOrderFront(nil)
+    }
+
+    @objc private func copyPhoneShareLink() {
+        guard let link = phoneShare.links.first else { return }
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(link, forType: .string)
+    }
+
+    private func updatePhoneShare() {
+        phoneShareQR?.image = nil
+        if let link = phoneShare.links.first,
+           let filter = CIFilter(name: "CIQRCodeGenerator") {
+            filter.setValue(Data(link.utf8), forKey: "inputMessage")
+            if let output = filter.outputImage?.transformed(by: CGAffineTransform(scaleX: 5, y: 5)),
+               let image = CIContext().createCGImage(output.composited(over: CIImage(color: .white)), from: output.extent.insetBy(dx: -20, dy: -20)) {
+                phoneShareQR?.image = NSImage(cgImage: image, size: NSSize(width: image.width, height: image.height))
+            }
+        }
+        phoneShareButton?.title = phoneShare.active || phoneShare.starting ? "Stop Sharing" : "Start Sharing"
+        phoneShareLinks?.string = phoneShare.starting ? "Waiting for screen-capture permission…" : phoneShare.active ? (phoneShare.links.isEmpty ? "No local IPv4 address. Connect to Wi-Fi, then stop and restart sharing." : phoneShare.links.joined(separator: "\n\n")) : "Sharing is off. Start sharing to create a new private session link."
+        rebuildMenu()
+    }
+
+    @objc private func togglePhoneShare() {
+        if phoneShare.active || phoneShare.starting { phoneShare.stop() }
+        else { phoneShare.start() }
+    }
+
+    @objc private func stopPhoneShare() { phoneShare.stop() }
 
     private func editShortcut() {
         guard let button = statusItem.button else { return }
@@ -432,6 +518,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSWind
     }
 
     @objc private func quit() { NSApp.terminate(nil) }
+
+    func applicationWillTerminate(_ notification: Notification) { phoneShare.stop() }
 
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
         guard !busy else { return .terminateCancel }
