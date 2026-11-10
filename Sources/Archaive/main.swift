@@ -153,7 +153,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSWind
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 500, height: 330), styleMask: [.titled, .closable], backing: .buffered, defer: false)
         window.title = "Share your Mac to your phone"
         window.isReleasedWhenClosed = false
-        let help = NSTextField(wrappingLabelWithString: "Connect your phone and Mac to the same Wi-Fi or phone hotspot. Start sharing, then scan the QR code or open a link in Safari or Chrome on your phone. You can add the viewer to your Home Screen.")
+        let help = NSTextField(wrappingLabelWithString: "Connect your iPhone and Mac to the same Wi-Fi or phone hotspot. Start sharing, then scan this QR code inside the Archaive iPhone app. You can also open a sharing link in Safari or Chrome.")
         help.frame = NSRect(x: 20, y: 229, width: 460, height: 80)
         window.contentView?.addSubview(help)
         let scroll = NSScrollView(frame: NSRect(x: 20, y: 115, width: 310, height: 105))

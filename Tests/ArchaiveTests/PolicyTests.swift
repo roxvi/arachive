@@ -23,8 +23,30 @@ struct PolicyTests {
         tests.testShortcutRecordingLifecycle()
         tests.testShortcutResponderRouting()
         tests.testPhoneSharingSessionIsolation()
-        print("13 regression tests passed")
+        tests.testIPhonePairingAddresses()
+        print("14 regression tests passed")
     }
+    func testIPhonePairingAddresses() {
+        let token = "0123456789abcdef0123456789ABCDEF"
+        for host in ["10.0.0.2", "172.16.0.1", "172.31.255.254", "192.168.1.20", "169.254.2.1"] {
+            let link = "http://\(host):43210/\(token)/"
+            XCTAssertEqual(ShareAddress(" \(link)\n")?.frameURL.absoluteString, link + "frame")
+        }
+        for host in ["example.com", "127.0.0.1", "0.0.0.0", "192.168.1.999", "192.168.01.1", "192.168.1", "172.15.0.1", "172.32.0.1", "8.8.8.8"] {
+            XCTAssertNil(ShareAddress("http://\(host):43210/\(token)/"))
+        }
+        let base = "http://192.168.1.20:43210/\(token)/"
+        for invalid in [base + "frame", base + "?query=1", base + "#fragment",
+                        base.replacingOccurrences(of: "http:", with: "https:"),
+                        base.replacingOccurrences(of: token, with: "wrong"),
+                        base.replacingOccurrences(of: "43210", with: "0"),
+                        base.replacingOccurrences(of: "43210", with: "65536"),
+                        base.replacingOccurrences(of: ":43210", with: ""),
+                        base.replacingOccurrences(of: "192.168", with: "user@192.168")] {
+            XCTAssertNil(ShareAddress(invalid))
+        }
+    }
+
     func testPhoneSharingSessionIsolation() {
         func route(_ request: String, token: String = "current") -> PhoneShareHTTP.Route {
             PhoneShareHTTP.route(Data(request.utf8), token: token)
