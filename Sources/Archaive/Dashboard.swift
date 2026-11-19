@@ -1,7 +1,6 @@
 import SwiftUI
 
 enum DashboardPage: String, CaseIterable, Identifiable {
-    case focus = "Focus"
     case power = "Keep Awake"
     case connection = "Connections"
 
@@ -9,7 +8,6 @@ enum DashboardPage: String, CaseIterable, Identifiable {
 
     var symbol: String {
         switch self {
-        case .focus: return "scope"
         case .power: return "sun.max"
         case .connection: return "personalhotspot"
         }
@@ -32,7 +30,7 @@ final class DashboardState: ObservableObject {
         var startingShare = false
     }
 
-    @Published var page: DashboardPage = .focus
+    @Published var page: DashboardPage = .power
     @Published var status = Status()
 }
 
@@ -57,6 +55,7 @@ struct Dashboard: View {
     @ObservedObject var focus: FocusSession
     let actions: DashboardActions
     @State private var search = ""
+    @State private var showFocusSettings = false
 
     private var status: DashboardState.Status { state.status }
 
@@ -66,7 +65,6 @@ struct Dashboard: View {
             Divider()
             Group {
                 switch state.page {
-                case .focus: focusPage
                 case .power: powerPage
                 case .connection: connectionsPage
                 }
@@ -94,7 +92,7 @@ struct Dashboard: View {
                         Image(systemName: page.symbol).frame(width: 19)
                         Text(page.rawValue)
                         Spacer(minLength: 0)
-                        if page == .focus && focus.active {
+                        if page == .power && focus.active {
                             Circle().fill(Color(nsColor: .systemGreen)).frame(width: 6, height: 6)
                                 .accessibilityHidden(true)
                         }
@@ -107,7 +105,7 @@ struct Dashboard: View {
                 }
                 .buttonStyle(.plain)
                 .accessibilityAddTraits(state.page == page ? .isSelected : [])
-                .accessibilityValue(page == .focus && focus.active ? "Active" : "")
+                .accessibilityValue(page == .power && focus.active ? "Focus active" : "")
             }
             Spacer()
             Button(action: actions.replayTour) {
@@ -122,62 +120,65 @@ struct Dashboard: View {
         .background(Color(nsColor: .controlBackgroundColor))
     }
 
-    private var focusPage: some View {
-        VStack(alignment: .leading, spacing: 15) {
-            heading("Focus", "Choose which apps and their helpers keep running.")
-            HStack {
-                VStack(alignment: .leading, spacing: 3) {
-                    Label(focus.active ? "Focus is on" : "Focus is off", systemImage: focus.active ? "pause.circle.fill" : "pause.circle")
-                        .font(.headline)
-                        .foregroundStyle(focus.active ? Color(nsColor: .systemGreen) : .primary)
+    private var focusSettings: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            HStack(spacing: 14) {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("Focus").font(.headline)
                     Text(focusStatus).foregroundStyle(.secondary)
                 }
                 Spacer()
-                Button(focus.active ? "End Focus" : "Start Focus") {
-                    if focus.active { focus.stop() }
-                    else { focus.start() }
+                Toggle("Focus", isOn: Binding(get: { focus.enabled }, set: { value in
+                    focus.setEnabled(value)
+                    if value && focus.allowed.isEmpty { showFocusSettings = true }
+                }))
+                .labelsHidden().toggleStyle(.switch)
+            }
+            .padding(.top, 15)
+            .padding(.bottom, 10)
+            DisclosureGroup("Focus Settings", isExpanded: $showFocusSettings) {
+                VStack(alignment: .leading, spacing: 10) {
+                    HStack {
+                        Text("Apps to keep running").font(.headline)
+                        Spacer()
+                        Button(action: actions.addApps) { Label("Add Apps…", systemImage: "plus") }
+                    }
+                    TextField("Find an app", text: $search)
+                        .textFieldStyle(.roundedBorder)
+                        .accessibilityLabel("Find an app")
+                    appList.frame(height: 150)
+                    HStack(spacing: 14) {
+                        Text("Apps opened during Focus")
+                        Spacer(minLength: 2)
+                        Picker("Apps opened during Focus", selection: Binding(get: { focus.newApps }, set: focus.setNewApps)) {
+                            ForEach(NewFocusApps.allCases, id: \.self) { option in Text(option.title).tag(option) }
+                        }
+                        .labelsHidden()
+                        .fixedSize()
+                    }
+                    Text("Shared macOS services and protected apps stay running.")
+                        .font(.callout).foregroundStyle(.secondary)
                 }
-                .buttonStyle(.borderedProminent)
-                .controlSize(.large)
-                .disabled(!focus.active && focus.allowed.isEmpty)
+                .padding(.top, 9)
             }
-            .padding(13)
-            .background(Color(nsColor: .controlBackgroundColor), in: RoundedRectangle(cornerRadius: 9))
-
-            HStack(spacing: 12) {
-                Text("Apps to keep running").font(.headline)
-                Spacer(minLength: 10)
-                Button(action: actions.addApps) { Label("Add Apps…", systemImage: "plus") }
+            if let message = focus.message {
+                Text(message).font(.callout).foregroundStyle(.secondary)
+                    .padding(.top, 9)
+                    .accessibilityAddTraits(.updatesFrequently)
             }
-            TextField("Find an app", text: $search)
-                .textFieldStyle(.roundedBorder)
-                .accessibilityLabel("Find an app")
-            appList
-            Divider()
-            HStack(spacing: 14) {
-                Text("Apps opened during Focus").font(.headline)
-                Spacer(minLength: 2)
-                Picker("Apps opened during Focus", selection: Binding(get: { focus.newApps }, set: focus.setNewApps)) {
-                    ForEach(NewFocusApps.allCases, id: \.self) { option in Text(option.title).tag(option) }
-                }
-                .labelsHidden()
-                .fixedSize()
-            }
-            Text(focus.message ?? "Shared macOS services and protected apps stay running.")
-                .font(.callout)
-                .foregroundStyle(.secondary)
-                .fixedSize(horizontal: false, vertical: true)
-                .accessibilityAddTraits(.updatesFrequently)
+            Divider().padding(.top, 15)
         }
-        .padding(24)
     }
 
     private var focusStatus: String {
-        if focus.active {
+        if focus.active && focus.enabled && status.awake == true && !focus.allowed.isEmpty {
             let count = focus.apps.filter(\.paused).count
             return count == 1 ? "1 app paused" : "\(count) apps paused"
         }
-        return focus.allowed.isEmpty ? "Select at least one app to start." : "\(focus.allowed.count) selected to keep running"
+        if !focus.enabled { return "Pause other apps while Keep Awake is on." }
+        if focus.allowed.isEmpty { return "Select at least one app to keep running." }
+        if status.awake != true { return "Ready to start when Keep Awake turns on." }
+        return "Focus is inactive."
     }
 
     private var appList: some View {
@@ -228,6 +229,7 @@ struct Dashboard: View {
                     .buttonStyle(.borderedProminent)
                     .disabled(status.busy || status.awake == nil)
             }
+            focusSettings
             setting("Fully dim when the lid closes", "Restore the previous brightness when the lid opens.") {
                 Toggle("Fully dim when the lid closes", isOn: Binding(get: { status.dim }, set: { _ in actions.toggleDimming() }))
                     .labelsHidden().toggleStyle(.switch)

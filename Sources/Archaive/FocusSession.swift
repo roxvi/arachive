@@ -13,20 +13,46 @@ final class FocusSession: ObservableObject {
     @Published private(set) var apps: [FocusApp] = []
     @Published private(set) var allowed: Set<String>
     @Published private(set) var newApps: NewFocusApps
+    @Published private(set) var enabled: Bool
     @Published private(set) var active = false
     @Published private(set) var message: String?
 
     private let defaults: UserDefaults
+    private let processes: () -> [FocusProcess]
     private let own = Bundle.main.bundleURL.resolvingSymlinksInPath().path
     private var policy: FocusPolicy?
     private var client: FocusPauseClient?
     private var paused: Set<FocusProcessID> = []
-    private var ending = false
+    private var awake = false
+    private var interrupted = false
 
-    init(defaults: UserDefaults = .standard) {
+    init(defaults: UserDefaults = .standard, processes: @escaping () -> [FocusProcess] = FocusProcess.snapshot) {
         self.defaults = defaults
+        self.processes = processes
+        enabled = defaults.bool(forKey: "focusEnabled")
         allowed = Set(defaults.stringArray(forKey: "focusAllowedApps") ?? [])
         newApps = defaults.string(forKey: "focusNewApps").flatMap(NewFocusApps.init(rawValue:)) ?? .keepRunning
+    }
+
+    func setEnabled(_ value: Bool) {
+        guard enabled != value else { return }
+        enabled = value
+        defaults.set(value, forKey: "focusEnabled")
+        reconcile()
+    }
+
+    func setKeepAwake(_ value: Bool) {
+        guard awake != value else { return }
+        awake = value
+        reconcile()
+    }
+
+    private func reconcile() {
+        if active || (enabled && awake && !allowed.isEmpty) { refresh() }
+        else if interrupted {
+            interrupted = false
+            updateMessage(nil)
+        }
     }
 
     func setAllowed(_ path: String, _ keep: Bool) {
@@ -60,42 +86,29 @@ final class FocusSession: ObservableObject {
         }
     }
 
-    func start() {
-        guard !active, !allowed.isEmpty, let executable = Bundle.main.executableURL else { return }
-        do {
-            client = try FocusPauseClient(executable: executable)
-            let processes = FocusProcess.snapshot()
-            policy = FocusPolicy(initial: Set(processes.map(\.id)))
-            active = true
-            update(processes)
-        } catch {
-            message = "Couldn’t start Focus. Try starting a new session."
+    func refresh() {
+        let processes = self.processes()
+        let shouldPause = enabled && awake && !allowed.isEmpty
+        if !shouldPause && interrupted {
+            interrupted = false
+            updateMessage(nil)
         }
-    }
-
-    @discardableResult
-    func stop() -> Bool {
-        guard active else { return true }
-        ending = true
-        refresh()
-        return !active
-    }
-
-    func refresh() { update(FocusProcess.snapshot()) }
-
-    private func update(_ processes: [FocusProcess]) {
+        if shouldPause && !active && !interrupted {
+            start(processes)
+        }
         if let client, let policy {
-            let targets = ending ? [] : policy.targets(in: processes, keeping: allowed, newApps: newApps, own: own)
+            let targets = shouldPause ? policy.targets(in: processes, keeping: allowed, newApps: newApps, own: own) : []
             do {
                 let reply = try client.apply(Set(targets.map(\.id)))
                 paused = reply.paused
-                updateMessage(reply.failed == 0 ? nil : ending
-                    ? "Some apps couldn’t resume. Archaive is retrying."
-                    : "Some processes couldn’t be paused or resumed.")
-                if ending && paused.isEmpty { finish() }
+                updateMessage(reply.failed == 0 ? nil : shouldPause
+                    ? "Some processes couldn’t be paused or resumed."
+                    : "Some apps couldn’t resume. Archaive is retrying.")
+                if !shouldPause && paused.isEmpty { finish() }
             } catch {
                 finish()
-                updateMessage("Focus was interrupted. The background helper resumes apps when its connection closes.")
+                interrupted = shouldPause
+                updateMessage("Focus was interrupted. Turn Focus off and on to retry.")
             }
         }
 
@@ -112,6 +125,18 @@ final class FocusSession: ObservableObject {
         if apps != list { apps = list }
     }
 
+    private func start(_ processes: [FocusProcess]) {
+        do {
+            guard let executable = Bundle.main.executableURL else { throw CocoaError(.fileNoSuchFile) }
+            client = try FocusPauseClient(executable: executable)
+            policy = FocusPolicy(initial: Set(processes.map(\.id)))
+            active = true
+        } catch {
+            interrupted = true
+            updateMessage("Couldn’t start Focus. Turn Focus off and on to retry.")
+        }
+    }
+
     private func updateMessage(_ value: String?) {
         if message != value { message = value }
     }
@@ -120,7 +145,6 @@ final class FocusSession: ObservableObject {
         client = nil
         policy = nil
         paused = []
-        ending = false
         active = false
     }
 }

@@ -36,13 +36,13 @@ python3 scripts/package-dmg.py
 
 Packaging requires Python 3 and downloads pinned `dmgbuild` dependencies into an isolated `.build/dmg-venv`. It generates `dist/Archaive-<version>-arm64.dmg` and its SHA-256 file. Update `VERSION` before making a new installer; the packager refuses to overwrite existing installers. No packaging dependencies ship in the app.
 
-## Focus
+## Focus in Keep Awake
 
-Open **Archaive** from the Dock or choose **Open Archaive** from the menu bar. In **Focus**, check the apps you want to keep running. Use **Add Apps…** to select apps that are currently closed. Then choose **Start Focus**. Archaive remembers your selections and the launch policy.
+Open **Archaive** from the Dock or choose **Open Archaive** from the menu bar. In **Keep Awake**, open **Focus Settings** and check the apps you want to keep running. Use **Add Apps…** to select apps that are currently closed. Turn on the **Focus** switch to pause other apps whenever Keep Awake is on. Archaive remembers the switch, your selections, and the launch policy.
 
 Focus pauses eligible unselected apps and their bundled helpers. It keeps recognizable descendants of selected apps running and leaves system services, recovery tools, and unbundled processes running. Paused apps can appear unresponsive until you allow them or end the session.
 
-Under **Apps opened during Focus**, choose **Keep running** (the default) or **Pause automatically**. The policy applies while the session is active. Closing the window leaves Focus running. Choose **End Focus** in the window or menu bar to resume what Archaive paused. Quitting also resumes those processes, and a separate helper resumes them if the window process is force quit or crashes.
+Under **Apps opened during Focus**, choose **Keep running** (the default) or **Pause automatically**. The policy applies while Focus is active. Closing the window leaves Focus running. Choose **Allow Sleep** or turn off the **Focus** switch to resume what Archaive paused. **Turn Off Focus** in the menu bar also turns off the switch. Quitting also resumes those processes, and a separate helper resumes them if the window process is force quit or crashes.
 
 ## Keep Awake and hotspot
 
@@ -82,7 +82,7 @@ An awake Mac still consumes battery and produces heat with the lid closed. Do no
 ./scripts/test.sh
 ```
 
-The standalone harness runs with Command Line Tools, without requiring Xcode/XCTest. Tests cover Focus policy, process pause and resume, recovery when the helper loses its connection, power-state parsing, reconnect grace periods, retry backoff, recovery after Wi-Fi returns, disabled/unconfigured states, emoji argument preservation and SSID validation, and brightness restoration including failed writes. Hardware acceptance requires checking the shortcut, approving the macOS authorization dialog, closing/reopening the lid, and losing Wi-Fi near a configured hotspot. Building and unit tests do not establish those hardware behaviors.
+The standalone harness runs with Command Line Tools, without requiring Xcode/XCTest. Tests cover the Keep Awake and Focus lifecycle, Focus policy, process pause and resume, recovery when the helper loses its connection, power-state parsing, reconnect grace periods, retry backoff, recovery after Wi-Fi returns, disabled/unconfigured states, emoji argument preservation and SSID validation, and brightness restoration including failed writes. Hardware acceptance requires checking the shortcut, approving the macOS authorization dialog, closing/reopening the lid, and losing Wi-Fi near a configured hotspot. Building and unit tests do not establish those hardware behaviors.
 
 Implementation references: [Apple's pmset source](https://github.com/apple-oss-distributions/PowerManagement/blob/main/pmset/pmset.m), [Core WLAN](https://developer.apple.com/documentation/corewlan), and the installed `networksetup -help` documentation.
 

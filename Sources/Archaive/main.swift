@@ -135,6 +135,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSWind
             dashboardWindow = window
         }
         updateDashboard()
+        refreshSleep()
         focus.refresh()
         NSApp.activate(ignoringOtherApps: true)
         if dashboardWindow?.isMiniaturized == true { dashboardWindow?.deminiaturize(nil) }
@@ -173,7 +174,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSWind
         menu.autoenablesItems = false
         menu.removeAllItems()
         item("Open Archaive", #selector(showDashboard))
-        if focus.active { item("End Focus", #selector(stopFocusFromMenu)) }
+        if focus.active && focus.enabled { item("Turn Off Focus", #selector(disableFocusFromMenu)) }
         menu.addItem(.separator())
         item(disabled ? "Allow Sleep" : "Keep Awake", #selector(toggleSleep)).isEnabled = !busy && known
         if phoneShare.active || phoneShare.starting { item("Stop Phone Sharing", #selector(stopPhoneShare)) }
@@ -254,9 +255,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSWind
 
     @objc private func stopPhoneShare() { phoneShare.stop() }
 
-    @objc private func stopFocusFromMenu() {
-        if !focus.stop() { showDashboard() }
-    }
+    @objc private func disableFocusFromMenu() { focus.setEnabled(false) }
 
     private func recordingShortcut(_ recording: Bool) {
         onboarding.model.recordingShortcut = recording
@@ -284,14 +283,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSWind
         statusIcon.update(button: button, awake: disabled)
     }
 
+    private func updateConfirmedSleep(_ value: Bool?) {
+        known = value != nil
+        if let value { disabled = value }
+        focus.setKeepAwake(value == true)
+    }
+
     private func refreshSleep() {
         guard !busy else { return }
         work.async {
             let value = System.sleepDisabled()
             DispatchQueue.main.async {
                 guard !self.busy else { return }
-                self.known = value != nil
-                if let value { self.disabled = value }
+                self.updateConfirmedSleep(value)
                 self.updateIcon()
             }
         }
@@ -366,8 +370,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSWind
             let after = System.sleepDisabled()
             DispatchQueue.main.async {
                 self.busy = false
-                self.known = after != nil
-                if let after { self.disabled = after }
+                self.updateConfirmedSleep(after)
                 if result.status == 0 && after == value {
                     if restoring || self.defaults.bool(forKey: "originalSleepDisabled") == value {
                         self.defaults.removeObject(forKey: "originalSleepDisabled")
@@ -569,14 +572,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSWind
 
     @objc private func quit() { NSApp.terminate(nil) }
 
-    func applicationWillTerminate(_ notification: Notification) { phoneShare.stop() }
+    func applicationWillTerminate(_ notification: Notification) {
+        focus.setKeepAwake(false)
+        phoneShare.stop()
+    }
 
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
         guard !busy else { return .terminateCancel }
-        guard focus.stop() else {
-            showDashboard()
-            return .terminateCancel
-        }
         guard brightness.restore() else {
             showAlert("Brightness could not be restored", "Reconnect your display and try quitting again, or restore brightness using the keyboard controls.")
             return .terminateCancel

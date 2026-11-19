@@ -30,7 +30,8 @@ struct PolicyTests {
         tests.testIPhonePairingAddresses()
         tests.testFocusPolicy()
         try! tests.testFocusPauseLifecycle()
-        print("16 regression tests passed")
+        try! tests.testFocusFollowsKeepAwake()
+        print("17 regression tests passed")
     }
     func testFocusPolicy() {
         func process(_ pid: Int32, _ parent: Int32 = 1, _ app: String? = nil, born: UInt64? = nil) -> FocusProcess {
@@ -74,31 +75,78 @@ struct PolicyTests {
             child.waitUntilExit()
         }
         let identity = FocusProcessID(FocusProcessID.read(pid)!)
-        func expectStopped(_ stopped: Bool) {
-            for _ in 0..<100 {
-                if let info = FocusProcessID.read(pid), (info.pbi_status == SSTOP) == stopped { return }
-                usleep(10_000)
-            }
-            preconditionFailure("Focus test process did not change stop state")
-        }
         var client: FocusPauseClient? = try FocusPauseClient(executable: Bundle.main.executableURL!)
         XCTAssertEqual(try client!.apply([identity]).paused, [identity])
-        expectStopped(true)
+        expectStopped(pid, true)
         XCTAssertTrue(try client!.apply([]).paused.isEmpty)
-        expectStopped(false)
+        expectStopped(pid, false)
 
         kill(pid, SIGSTOP)
-        expectStopped(true)
+        expectStopped(pid, true)
         XCTAssertTrue(try client!.apply([identity]).paused.isEmpty)
         XCTAssertTrue(try client!.apply([]).paused.isEmpty)
-        expectStopped(true)
+        expectStopped(pid, true)
         kill(pid, SIGCONT)
-        expectStopped(false)
+        expectStopped(pid, false)
 
         XCTAssertEqual(try client!.apply([identity]).paused, [identity])
-        expectStopped(true)
+        expectStopped(pid, true)
         client = nil
-        expectStopped(false)
+        expectStopped(pid, false)
+    }
+
+    func testFocusFollowsKeepAwake() throws {
+        let child = Process()
+        child.executableURL = URL(fileURLWithPath: "/bin/sleep")
+        child.arguments = ["60"]
+        try child.run()
+        let pid = child.processIdentifier
+        let suite = "Archaive.FocusTest.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suite)!
+        defer {
+            kill(pid, SIGKILL)
+            child.waitUntilExit()
+            defaults.removePersistentDomain(forName: suite)
+        }
+        let target = FocusProcess(id: FocusProcessID(FocusProcessID.read(pid)!), parent: 1, app: "/Applications/Other.app")
+        let focus = FocusSession(defaults: defaults, processes: { [target] })
+        let allowed = "/Applications/Editor.app"
+        XCTAssertFalse(focus.enabled)
+        focus.setAllowed(allowed, true)
+        focus.setEnabled(true)
+        XCTAssertFalse(focus.active)
+        expectStopped(pid, false)
+
+        focus.setKeepAwake(true)
+        XCTAssertTrue(focus.active)
+        expectStopped(pid, true)
+        focus.setKeepAwake(false)
+        XCTAssertFalse(focus.active)
+        XCTAssertTrue(focus.enabled)
+        expectStopped(pid, false)
+
+        focus.setKeepAwake(true)
+        expectStopped(pid, true)
+        focus.setAllowed(allowed, false)
+        XCTAssertFalse(focus.active)
+        expectStopped(pid, false)
+        focus.setAllowed(allowed, true)
+        expectStopped(pid, true)
+        focus.setEnabled(false)
+        XCTAssertFalse(focus.active)
+        expectStopped(pid, false)
+        focus.setKeepAwake(false)
+        focus.setKeepAwake(true)
+        XCTAssertFalse(focus.active)
+        XCTAssertFalse(defaults.bool(forKey: "focusEnabled"))
+    }
+
+    private func expectStopped(_ pid: pid_t, _ stopped: Bool) {
+        for _ in 0..<100 {
+            if let info = FocusProcessID.read(pid), (info.pbi_status == SSTOP) == stopped { return }
+            usleep(10_000)
+        }
+        preconditionFailure("Focus test process did not change stop state")
     }
 
     func testIPhonePairingAddresses() {
