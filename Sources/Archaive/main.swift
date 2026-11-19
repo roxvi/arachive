@@ -1,13 +1,17 @@
 import AppKit
 import CoreImage
+import SwiftUI
 
 final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSWindowDelegate {
     private let defaults = UserDefaults.standard
     private let work = DispatchQueue(label: "Archaive.Power")
     private let hotKey = HotKey()
-    private let shortcutPopover = ShortcutPopover()
     private let hotspot = Hotspot()
     private let onboarding = OnboardingController()
+    private let dashboard = DashboardState()
+    private let focus = FocusSession()
+    private var dashboardWindow: NSWindow?
+    private var focusTimer: Timer?
     private var statusItem: NSStatusItem!
     private let statusIcon = StatusIconAnimator()
     private var timer: Timer?
@@ -38,7 +42,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSWind
            NSRunningApplication.runningApplications(withBundleIdentifier: id).count > 1 {
             exit(0)
         }
-        installEditMenu()
+        installMainMenu()
         phoneShare.changed = { [weak self] in self?.updatePhoneShare() }
         phoneShare.failed = { [weak self] in self?.showAlert("Phone sharing unavailable", $0) }
         DistributedNotificationCenter.default().addObserver(self, selector: #selector(stopPhoneShare), name: NSNotification.Name("com.apple.screenIsLocked"), object: nil)
@@ -54,10 +58,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSWind
             self.toggleSleep()
         }
         shortcutOK = hotKey.register()
-        hotspot.onStatus = { [weak self] in self?.networkStatus = $0 }
+        hotspot.onStatus = { [weak self] status in
+            self?.networkStatus = status
+            self?.updateDashboard()
+        }
         hotspot.start()
         refreshSleep()
         timer = Timer.scheduledTimer(withTimeInterval: 1, repeats: true) { [weak self] _ in self?.checkLid() }
+        let focusTimer = Timer(timeInterval: 2, repeats: true) { [weak self] _ in
+            guard let self, self.focus.active || self.dashboardWindow?.isVisible == true else { return }
+            self.focus.refresh()
+        }
+        focusTimer.tolerance = 0.25
+        RunLoop.main.add(focusTimer, forMode: .common)
+        self.focusTimer = focusTimer
         updateIcon()
         rebuildMenu()
         onboarding.saveShortcut = { [weak self] in self?.saveShortcut($0) }
@@ -72,14 +86,69 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSWind
         }
         onboarding.setup = { [weak self] in self?.configureHotspot() }
         onboarding.statusButton = { [weak self] in self?.statusItem.button }
-        onboarding.handoff = { [weak self] in self?.statusItem.button?.performClick(nil) }
+        onboarding.handoff = { [weak self] in self?.showDashboard() }
         if defaults.object(forKey: "originalSleepDisabled") != nil {
-            showAlert("Unfinished awake session", "Archaive previously changed your sleep setting. Choose Restore Previous Sleep Setting from the menu to recover it. Until then, your Mac may stay awake with the lid closed.")
+            showAlert("Unfinished awake session", "Archaive previously changed your sleep setting. Open Keep Awake and choose Restore to recover it. Until then, your Mac may stay awake with the lid closed.")
         }
+        showDashboard()
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) { [weak self] in
             guard let self, !self.defaults.bool(forKey: "hasCompletedOnboarding") else { return }
             self.onboarding.present()
         }
+    }
+
+    func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
+        showDashboard()
+        return false
+    }
+
+    @objc private func showDashboard() {
+        if let tour = onboarding.window { tour.makeKeyAndOrderFront(nil); return }
+        if dashboardWindow == nil {
+            let actions = DashboardActions(
+                addApps: { [weak self] in
+                    guard let self, let window = self.dashboardWindow else { return }
+                    self.focus.addApps(in: window)
+                },
+                toggleSleep: { [weak self] in self?.toggleSleep() },
+                toggleDimming: { [weak self] in self?.toggleDimming() },
+                setupSleepAccess: { [weak self] in self?.setupSleepAccess() },
+                removeSleepAccess: { [weak self] in self?.removeSleepAccess() },
+                restoreSleep: { [weak self] in self?.restoreSleep() },
+                saveShortcut: { [weak self] in self?.saveShortcut($0) },
+                recordingShortcut: { [weak self] in self?.recordingShortcut($0) },
+                configureHotspot: { [weak self] in self?.configureHotspot() },
+                toggleHotspot: { [weak self] in self?.toggleHotspot() },
+                configureShare: { [weak self] in self?.showPhoneShare() },
+                stopShare: { [weak self] in self?.stopPhoneShare() },
+                replayTour: { [weak self] in self?.replayOnboarding() }
+            )
+            let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 820, height: 590),
+                                  styleMask: [.titled, .closable, .miniaturizable, .resizable],
+                                  backing: .buffered, defer: false)
+            window.title = "Archaive"
+            window.titleVisibility = .hidden
+            window.isReleasedWhenClosed = false
+            window.contentView = NSHostingView(rootView: Dashboard(state: dashboard, focus: focus, actions: actions))
+            window.contentMinSize = NSSize(width: 680, height: 480)
+            window.center()
+            dashboardWindow = window
+        }
+        updateDashboard()
+        focus.refresh()
+        NSApp.activate(ignoringOtherApps: true)
+        if dashboardWindow?.isMiniaturized == true { dashboardWindow?.deminiaturize(nil) }
+        dashboardWindow?.makeKeyAndOrderFront(nil)
+    }
+
+    private func updateDashboard() {
+        let value = DashboardState.Status(
+            awake: known ? disabled : nil, busy: busy, dim: defaults.bool(forKey: "dimOnClose"),
+            authorized: SleepAccess.isInstalled, canRestore: defaults.object(forKey: "originalSleepDisabled") != nil,
+            shortcut: hotKey.shortcut, shortcutAvailable: shortcutOK,
+            hotspotName: defaults.string(forKey: "hotspotName"), hotspotEnabled: defaults.bool(forKey: "hotspotEnabled"),
+            network: networkStatus, sharing: phoneShare.active, startingShare: phoneShare.starting)
+        if dashboard.status != value { dashboard.status = value }
     }
 
     func menuWillOpen(_ menu: NSMenu) {
@@ -90,60 +159,25 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSWind
         onboarding.model.actualBusy = busy
         onboarding.model.actualAwake = known ? disabled : nil
         populateMenu(menu)
+        updateDashboard()
     }
 
     private func populateMenu(_ menu: NSMenu) {
         @discardableResult
-        func item(_ title: String, _ action: Selector? = nil, checked: Bool? = nil) -> NSMenuItem {
+        func item(_ title: String, _ action: Selector) -> NSMenuItem {
             let row = NSMenuItem(title: title, action: action, keyEquivalent: "")
             row.target = self
-            row.isEnabled = action != nil
-            if let checked { row.state = checked ? .on : .off }
             menu.addItem(row)
             return row
         }
         menu.autoenablesItems = false
         menu.removeAllItems()
-        let awake = disabled
-        if busy {
-            item("Updating sleep setting…")
-        } else if !known {
-            item("Sleep setting unavailable")
-        } else {
-            item(awake ? "Mac stays awake" : "Mac sleeps normally")
-        }
-        let shortcutRow = NSMenuItem()
-        shortcutRow.isEnabled = !busy && known
-        shortcutRow.view = ShortcutMenuRow(shortcut: hotKey.shortcut, awake: awake,
-            enabled: !busy && known,
-            toggle: { [weak self, weak menu] in
-                menu?.cancelTracking()
-                self?.toggleSleep()
-            }, edit: { [weak self, weak menu] in
-                menu?.cancelTracking()
-                DispatchQueue.main.async { self?.editShortcut() }
-            })
-        menu.addItem(shortcutRow)
-        if !shortcutOK { item("Shortcut unavailable — click to edit") }
-        item("Fully Dim When Lid Closes", #selector(toggleDimming), checked: defaults.bool(forKey: "dimOnClose"))
-            .toolTip = lastLid.map { $0 ? "Lid closed" : "Lid open" } ?? "Lid sensor unavailable"
+        item("Open Archaive", #selector(showDashboard))
+        if focus.active { item("End Focus", #selector(stopFocusFromMenu)) }
         menu.addItem(.separator())
-        item(phoneShare.active ? "Sharing Screen to Phone…" : "Share Screen to Phone…", #selector(showPhoneShare))
+        item(disabled ? "Allow Sleep" : "Keep Awake", #selector(toggleSleep)).isEnabled = !busy && known
         if phoneShare.active || phoneShare.starting { item("Stop Phone Sharing", #selector(stopPhoneShare)) }
         menu.addItem(.separator())
-        let hotspotName = defaults.string(forKey: "hotspotName")
-        let hotspotTitle = hotspotName.map { "Auto-Connect to Hotspot · \($0)" } ?? "Auto-Connect to Hotspot"
-        item(hotspotTitle, #selector(toggleHotspot), checked: defaults.bool(forKey: "hotspotEnabled"))
-            .toolTip = networkStatus
-        item("Hotspot Settings…", #selector(configureHotspot))
-        menu.addItem(.separator())
-        if defaults.object(forKey: "originalSleepDisabled") != nil {
-            item("Restore Previous Sleep Setting", #selector(restoreSleep)).isEnabled = !busy
-        }
-        item(SleepAccess.isInstalled ? "Remove Password-Free Access…" : "Set Up Password-Free Toggles…", SleepAccess.isInstalled ? #selector(removeSleepAccess) : #selector(setupSleepAccess))
-            .isEnabled = !busy
-        item("Replay Welcome Tour…", #selector(replayOnboarding))
-        item("About Archaive…", #selector(about))
         item("Quit Archaive", #selector(quit)).isEnabled = !busy
     }
 
@@ -220,17 +254,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSWind
 
     @objc private func stopPhoneShare() { phoneShare.stop() }
 
-    private func editShortcut() {
-        guard let button = statusItem.button else { return }
-        shortcutPopover.show(from: button, shortcut: hotKey.shortcut,
-            save: { [weak self] in self?.saveShortcut($0) },
-            recordingChanged: { [weak self] in self?.recordingShortcut($0) })
+    @objc private func stopFocusFromMenu() {
+        if !focus.stop() { showDashboard() }
     }
 
     private func recordingShortcut(_ recording: Bool) {
         onboarding.model.recordingShortcut = recording
         if recording { hotKey.suspend() }
-        else { shortcutOK = hotKey.register() }
+        else { shortcutOK = hotKey.register(); updateDashboard() }
     }
 
     private func saveShortcut(_ candidate: Shortcut) -> String? {
@@ -240,13 +271,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSWind
         shortcutOK = true
         onboarding.model.shortcut = candidate
         updateIcon()
-        // Rebuild the status menu on its next opening, after tracking ends.
         return nil
     }
 
     @objc private func replayOnboarding() { onboarding.present() }
 
     private func updateIcon() {
+        updateDashboard()
         onboarding.model.actualAwake = known ? disabled : nil
         guard let button = statusItem.button else { return }
         button.toolTip = "Archaive · \(disabled ? "Awake" : "Normal sleep") · \(hotKey.shortcut.label)"
@@ -277,6 +308,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSWind
         guard !SleepAccess.isInstalled else { onboarding.authorizationFinished(success: true, message: "Already set up. Toggles need no password."); return }
         busy = true
         onboarding.authorizationStarted()
+        updateDashboard()
         work.async {
             let result = SleepAccess.install()
             DispatchQueue.main.async {
@@ -300,6 +332,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSWind
             return
         }
         busy = true
+        updateDashboard()
         work.async {
             let result = SleepAccess.remove()
             DispatchQueue.main.async {
@@ -347,7 +380,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSWind
                         self.defaults.removeObject(forKey: "originalSleepDisabled")
                     }
                     self.cancelTermination()
-                    self.showAlert("Sleep setting was not changed", result.output.isEmpty ? "macOS did not confirm the requested setting. Try again from the menu." : result.output)
+                    self.showAlert("Sleep setting was not changed", result.output.isEmpty ? "macOS did not confirm the requested setting. Try again from Keep Awake." : result.output)
                 }
                 self.updateIcon()
                 self.rebuildMenu()
@@ -380,17 +413,25 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSWind
         defaults.set(!defaults.bool(forKey: "dimOnClose"), forKey: "dimOnClose")
         lastLid = nil
         checkLid()
+        updateDashboard()
     }
 
     @objc private func toggleHotspot() {
         if defaults.string(forKey: "hotspotName")?.isEmpty ?? true { configureHotspot(); return }
         defaults.set(!defaults.bool(forKey: "hotspotEnabled"), forKey: "hotspotEnabled")
+        updateDashboard()
     }
 
-    private func installEditMenu() {
+    private func installMainMenu() {
         let main = NSMenu()
         let appRoot = NSMenuItem(title: "Archaive", action: nil, keyEquivalent: "")
         appRoot.submenu = NSMenu(title: "Archaive")
+        let aboutItem = appRoot.submenu!.addItem(withTitle: "About Archaive", action: #selector(about), keyEquivalent: "")
+        aboutItem.target = self
+        appRoot.submenu!.addItem(.separator())
+        let hideItem = appRoot.submenu!.addItem(withTitle: "Hide Archaive", action: #selector(NSApplication.hide(_:)), keyEquivalent: "h")
+        hideItem.target = NSApp
+        appRoot.submenu!.addItem(.separator())
         let quitItem = appRoot.submenu!.addItem(withTitle: "Quit Archaive", action: #selector(quit), keyEquivalent: "q")
         quitItem.target = self
         main.addItem(appRoot)
@@ -404,6 +445,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSWind
         emoji.target = NSApp
         root.submenu = edit
         main.addItem(root)
+        let windowRoot = NSMenuItem(title: "Window", action: nil, keyEquivalent: "")
+        let windowMenu = NSMenu(title: "Window")
+        let openItem = windowMenu.addItem(withTitle: "Open Archaive", action: #selector(showDashboard), keyEquivalent: "0")
+        openItem.target = self
+        windowMenu.addItem(withTitle: "Close Window", action: #selector(NSWindow.performClose(_:)), keyEquivalent: "w")
+        windowRoot.submenu = windowMenu
+        main.addItem(windowRoot)
+        NSApp.windowsMenu = windowMenu
         NSApp.mainMenu = main
     }
 
@@ -492,6 +541,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSWind
         customPasswordInput = nil
         customPasswordToggle = nil
         onboarding.setupFinished(saved: true)
+        updateDashboard()
     }
 
     func windowWillClose(_ notification: Notification) {
@@ -523,6 +573,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSWind
 
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
         guard !busy else { return .terminateCancel }
+        guard focus.stop() else {
+            showDashboard()
+            return .terminateCancel
+        }
         guard brightness.restore() else {
             showAlert("Brightness could not be restored", "Reconnect your display and try quitting again, or restore brightness using the keyboard controls.")
             return .terminateCancel
@@ -536,8 +590,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSWind
     }
 }
 
+if CommandLine.arguments.dropFirst().first == FocusPauseWorker.argument {
+    FocusPauseWorker.run()
+    exit(0)
+}
+
 let app = NSApplication.shared
 let delegate = AppDelegate()
 app.delegate = delegate
-app.setActivationPolicy(.accessory)
+app.setActivationPolicy(.regular)
 app.run()

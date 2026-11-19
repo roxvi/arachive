@@ -1,7 +1,7 @@
 import AppKit
 import SwiftUI
 
-/// A focused recorder shared by onboarding and the menu-bar shortcut popover.
+/// A focused recorder shared by onboarding and the main window.
 struct ShortcutRecorder: NSViewRepresentable {
     let shortcut: Shortcut
     let keySize: CGFloat
@@ -181,87 +181,5 @@ final class ShortcutRecordButton: NSButton {
     deinit {
         if let monitor { NSEvent.removeMonitor(monitor) }
         if let resignObserver { NotificationCenter.default.removeObserver(resignObserver) }
-    }
-}
-
-private final class ShortcutActionButton: NSButton {
-    var invoke: (() -> Void)?
-    init(title: String, action: @escaping () -> Void) {
-        super.init(frame: .zero)
-        self.title = title
-        isBordered = false
-        font = .menuFont(ofSize: 13)
-        target = self
-        self.action = #selector(clicked)
-        invoke = action
-    }
-    required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
-    @objc private func clicked() { invoke?() }
-}
-
-/// A regular-height menu row. Only the shortcut badge opens the editor.
-final class ShortcutMenuRow: NSView {
-    init(shortcut: Shortcut, awake: Bool, enabled: Bool, toggle: @escaping () -> Void, edit: @escaping () -> Void) {
-        super.init(frame: NSRect(x: 0, y: 0, width: 280, height: 24))
-        let toggleButton = ShortcutActionButton(title: awake ? "✓  Toggle Keep Awake" : "    Toggle Keep Awake", action: toggle)
-        toggleButton.alignment = .left
-        toggleButton.frame = NSRect(x: 8, y: 1, width: 174, height: 22)
-        toggleButton.isEnabled = enabled
-        toggleButton.setAccessibilityLabel("Toggle Keep Awake")
-        addSubview(toggleButton)
-        let editButton = ShortcutActionButton(title: shortcut.label, action: edit)
-        editButton.frame = NSRect(x: 186, y: 1, width: 80, height: 22)
-        editButton.toolTip = "Edit keyboard shortcut"
-        editButton.setAccessibilityLabel("Edit keyboard shortcut, \(shortcut.label)")
-        addSubview(editButton)
-    }
-    required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
-}
-
-/// Recording needs a key window, which a tracking NSMenu does not provide.
-final class ShortcutPopover: NSObject, NSPopoverDelegate {
-    private let popover = NSPopover()
-    private var recorder: ShortcutRecordButton?
-
-    func show(from button: NSStatusBarButton, shortcut: Shortcut,
-              save: @escaping (Shortcut) -> String?, recordingChanged: @escaping (Bool) -> Void) {
-        popover.performClose(nil)
-        let controller = NSViewController()
-        let content = NSView(frame: NSRect(x: 0, y: 0, width: 282, height: 132))
-        let title = NSTextField(labelWithString: "Keyboard shortcut")
-        title.font = .systemFont(ofSize: 13, weight: .semibold)
-        title.frame = NSRect(x: 16, y: 103, width: 200, height: 18)
-        content.addSubview(title)
-        let keys = ShortcutRecordButton(frame: NSRect(x: 16, y: 48, width: 250, height: 40))
-        keys.keySize = 32
-        keys.shortcut = shortcut
-        keys.save = save
-        keys.recordingChanged = { [weak self] recording in
-            recordingChanged(recording)
-            if !recording {
-                DispatchQueue.main.async { self?.popover.performClose(nil) }
-            }
-        }
-        content.addSubview(keys)
-        let hint = NSTextField(wrappingLabelWithString: "Press your new shortcut. Esc cancels.\nUse ⌘, ⌥ or ⌃ with a letter or number.")
-        hint.font = .systemFont(ofSize: 11)
-        hint.textColor = .secondaryLabelColor
-        hint.alignment = .center
-        hint.frame = NSRect(x: 16, y: 10, width: 250, height: 30)
-        content.addSubview(hint)
-        controller.view = content
-        popover.contentViewController = controller
-        popover.behavior = .transient
-        popover.animates = false
-        popover.delegate = self
-        recorder = keys
-        NSApp.activate(ignoringOtherApps: true)
-        popover.show(relativeTo: button.bounds, of: button, preferredEdge: .minY)
-        keys.startRecording()
-    }
-
-    func popoverDidClose(_ notification: Notification) {
-        recorder?.stopRecording()
-        recorder = nil
     }
 }

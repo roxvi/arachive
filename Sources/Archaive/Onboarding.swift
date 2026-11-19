@@ -228,11 +228,11 @@ private struct TourPage: View {
     private let sunset = Color(red: 1, green: 0.66, blue: 0.43)
     private let titles = ["Close the lid.\nKeep things going.", "A shortcut you won’t\ntype by accident.", "Lights down.\nWork still running.", "Wi-Fi left?\nBring your own.", "We live up here."]
     private var bodies: [String] { [
-        "Keep your Mac awake, dim its display when the lid closes, and reconnect to your hotspot when Wi-Fi drops. All from one tiny menu.",
-        "\(model.shortcut.label) toggles keep awake. Click the keys to record your own combination, here or in the menu bar.\n\nApprove administrator access once. After that, toggles need no password.",
+        "Keep your Mac awake, dim its display when the lid closes, and reconnect to your hotspot when Wi-Fi drops. Open Archaive from the Dock to manage these settings.",
+        "\(model.shortcut.label) toggles keep awake. Click the keys to record your own combination, here or in Keep Awake.\n\nApprove administrator access once. After that, toggles need no password.",
         "With keep awake enabled, closing the lid brings supported displays to zero brightness. Open it again and your previous brightness returns.\n\nArchaive doesn’t request screen sleep or lock. Your Mac’s other lock settings still apply. Keyboard lighting is unchanged.",
         "Set your hotspot’s exact Wi-Fi name, emoji included. Archaive waits for Wi-Fi to drop, then tries your hotspot. Keep it nearby and discoverable.\n\nUse Custom Password is useful for a non-Apple hotspot, or whenever macOS normally asks for a password. If macOS already remembers it, leave the toggle off.",
-        "The menu bar. That’s the whole app.\n\nMoon means normal sleep. Sun means keep awake. Click it whenever you need us."
+        "The menu bar gives you quick access.\n\nMoon means normal sleep. Sun means keep awake. The Archaive window has all your controls."
     ] }
 
     var body: some View {
@@ -346,7 +346,7 @@ private struct TourPage: View {
                     Text("Reveal the menu bar at the top of this screen to find Archaive. It may be hidden by your notch or menu bar manager.").font(.system(size: 14)).multilineTextAlignment(.center)
                     Button("Find the icon again") { model.locate?() }.buttonStyle(.plain)
                 }
-                Text("Replay any time: menu → Replay Welcome Tour.").font(.system(size: 12)).foregroundStyle(.white.opacity(0.6))
+                Text("Replay any time from Welcome Tour in Archaive.").font(.system(size: 12)).foregroundStyle(.white.opacity(0.6))
             }
         }.padding(28).frame(maxWidth: .infinity)
             .background(.white.opacity(0.045), in: RoundedRectangle(cornerRadius: 28))

@@ -9,6 +9,10 @@ func XCTAssertFalse(_ value: Bool) { precondition(!value) }
 @main
 struct PolicyTests {
     static func main() {
+        if CommandLine.arguments.dropFirst().first == FocusPauseWorker.argument {
+            FocusPauseWorker.run()
+            return
+        }
         let tests = PolicyTests()
         tests.testPowerStateParsingRejectsMissingOrMalformedState()
         tests.testDisconnectGraceAndRetryBackoff()
@@ -24,8 +28,79 @@ struct PolicyTests {
         tests.testShortcutResponderRouting()
         tests.testPhoneSharingSessionIsolation()
         tests.testIPhonePairingAddresses()
-        print("14 regression tests passed")
+        tests.testFocusPolicy()
+        try! tests.testFocusPauseLifecycle()
+        print("16 regression tests passed")
     }
+    func testFocusPolicy() {
+        func process(_ pid: Int32, _ parent: Int32 = 1, _ app: String? = nil, born: UInt64? = nil) -> FocusProcess {
+            var info = proc_bsdinfo()
+            info.pbi_pid = UInt32(pid)
+            info.pbi_start_tvsec = born ?? UInt64(pid)
+            return FocusProcess(id: FocusProcessID(info), parent: parent, app: app)
+        }
+        let editor = "/Applications/Editor.app"
+        let other = "/Applications/Browser.app"
+        let own = "/Applications/Archaive.app"
+        let kept = process(10, 1, editor)
+        let paused = process(11, 1, other)
+        let policy = FocusPolicy(initial: [kept.id, paused.id])
+        let list = [
+            kept, paused, process(12, 1, other), process(13, 1, "/Applications/New.app"),
+            process(14, 10), process(15, 14, "/Applications/Related.app"),
+            process(16, 1, "/System/Library/CoreServices/Finder.app"),
+            process(17, 1, "/System/Applications/Utilities/Activity Monitor.app"),
+            process(18, 1, "/System/Applications/System Settings.app"),
+            process(19, 1, own), process(20, 1)
+        ]
+        XCTAssertEqual(policy.targets(in: list, keeping: [editor], newApps: .keepRunning, own: own).map(\.id.pid), [11, 12])
+        XCTAssertEqual(policy.targets(in: list, keeping: [editor], newApps: .pause, own: own).map(\.id.pid), [11, 12, 13])
+        // A relaunched app and a recycled PID are fresh processes.
+        XCTAssertTrue(policy.targets(in: [process(11, 1, other, born: 99)],
+                                     keeping: [], newApps: .keepRunning, own: own).isEmpty)
+        XCTAssertEqual(FocusProcess.bundlePath(for: editor + "/Contents/Frameworks/Helper.app/Contents/MacOS/Helper"), editor)
+        XCTAssertEqual(FocusProcess.bundlePath(for: "/System/Volumes/Data" + editor + "/Contents/MacOS/Editor"), editor)
+        XCTAssertNil(FocusProcess.bundlePath(for: "/usr/libexec/networkd"))
+    }
+
+    func testFocusPauseLifecycle() throws {
+        let child = Process()
+        child.executableURL = URL(fileURLWithPath: "/bin/sleep")
+        child.arguments = ["60"]
+        try child.run()
+        let pid = child.processIdentifier
+        defer {
+            kill(pid, SIGKILL)
+            child.waitUntilExit()
+        }
+        let identity = FocusProcessID(FocusProcessID.read(pid)!)
+        func expectStopped(_ stopped: Bool) {
+            for _ in 0..<100 {
+                if let info = FocusProcessID.read(pid), (info.pbi_status == SSTOP) == stopped { return }
+                usleep(10_000)
+            }
+            preconditionFailure("Focus test process did not change stop state")
+        }
+        var client: FocusPauseClient? = try FocusPauseClient(executable: Bundle.main.executableURL!)
+        XCTAssertEqual(try client!.apply([identity]).paused, [identity])
+        expectStopped(true)
+        XCTAssertTrue(try client!.apply([]).paused.isEmpty)
+        expectStopped(false)
+
+        kill(pid, SIGSTOP)
+        expectStopped(true)
+        XCTAssertTrue(try client!.apply([identity]).paused.isEmpty)
+        XCTAssertTrue(try client!.apply([]).paused.isEmpty)
+        expectStopped(true)
+        kill(pid, SIGCONT)
+        expectStopped(false)
+
+        XCTAssertEqual(try client!.apply([identity]).paused, [identity])
+        expectStopped(true)
+        client = nil
+        expectStopped(false)
+    }
+
     func testIPhonePairingAddresses() {
         let token = "0123456789abcdef0123456789ABCDEF"
         for host in ["10.0.0.2", "172.16.0.1", "172.31.255.254", "192.168.1.20", "169.254.2.1"] {
