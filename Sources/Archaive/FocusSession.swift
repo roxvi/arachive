@@ -14,6 +14,8 @@ final class FocusSession: ObservableObject {
     @Published private(set) var allowed: Set<String>
     @Published private(set) var newApps: NewFocusApps
     @Published private(set) var enabled: Bool
+    @Published private(set) var closedLidOnly: Bool
+    @Published private(set) var lidClosed: Bool?
     @Published private(set) var active = false
     @Published private(set) var message: String?
 
@@ -30,6 +32,7 @@ final class FocusSession: ObservableObject {
         self.defaults = defaults
         self.processes = processes
         enabled = defaults.bool(forKey: "focusEnabled")
+        closedLidOnly = defaults.bool(forKey: "focusClosedLidOnly")
         allowed = Set(defaults.stringArray(forKey: "focusAllowedApps") ?? [])
         newApps = defaults.string(forKey: "focusNewApps").flatMap(NewFocusApps.init(rawValue:)) ?? .keepRunning
     }
@@ -47,8 +50,25 @@ final class FocusSession: ObservableObject {
         reconcile()
     }
 
+    func setClosedLidOnly(_ value: Bool) {
+        guard closedLidOnly != value else { return }
+        closedLidOnly = value
+        defaults.set(value, forKey: "focusClosedLidOnly")
+        reconcile()
+    }
+
+    func setLidClosed(_ value: Bool?) {
+        guard lidClosed != value else { return }
+        lidClosed = value
+        if closedLidOnly { reconcile() }
+    }
+
+    private var shouldPause: Bool {
+        enabled && awake && !allowed.isEmpty && (!closedLidOnly || lidClosed == true)
+    }
+
     private func reconcile() {
-        if active || (enabled && awake && !allowed.isEmpty) { refresh() }
+        if active || shouldPause { refresh() }
         else if interrupted {
             interrupted = false
             updateMessage(nil)
@@ -88,7 +108,6 @@ final class FocusSession: ObservableObject {
 
     func refresh() {
         let processes = self.processes()
-        let shouldPause = enabled && awake && !allowed.isEmpty
         if !shouldPause && interrupted {
             interrupted = false
             updateMessage(nil)

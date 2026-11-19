@@ -138,6 +138,11 @@ struct Dashboard: View {
             .padding(.bottom, 10)
             DisclosureGroup("Focus Settings", isExpanded: $showFocusSettings) {
                 VStack(alignment: .leading, spacing: 10) {
+                    Toggle("Only when the lid is closed", isOn: Binding(
+                        get: { focus.closedLidOnly }, set: focus.setClosedLidOnly
+                    ))
+                    .toggleStyle(.switch)
+                    Divider()
                     HStack {
                         Text("Apps to keep running").font(.headline)
                         Spacer()
@@ -171,13 +176,16 @@ struct Dashboard: View {
     }
 
     private var focusStatus: String {
-        if focus.active && focus.enabled && status.awake == true && !focus.allowed.isEmpty {
-            let count = focus.apps.filter(\.paused).count
-            return count == 1 ? "1 app paused" : "\(count) apps paused"
-        }
         if !focus.enabled { return "Pause other apps while Keep Awake is on." }
         if focus.allowed.isEmpty { return "Select at least one app to keep running." }
         if status.awake != true { return "Ready to start when Keep Awake turns on." }
+        if focus.closedLidOnly && focus.lidClosed != true {
+            return focus.lidClosed == nil ? "Lid sensor unavailable." : "Waiting for the lid to close."
+        }
+        if focus.active {
+            let count = focus.apps.filter(\.paused).count
+            return count == 1 ? "1 app paused" : "\(count) apps paused"
+        }
         return "Focus is inactive."
     }
 

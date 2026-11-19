@@ -44,6 +44,8 @@ Open **Archaive** from the Dock or choose **Open Archaive** from the menu bar. I
 
 Focus pauses eligible unselected apps and their bundled helpers. It keeps recognizable descendants of selected apps running and leaves system services, recovery tools, and unbundled processes running. Paused apps can appear unresponsive until you allow them or end the session.
 
+In **Focus Settings**, enable **Only when the lid is closed** to pause apps when you close the lid and resume them when you open it. Keep Awake stays on. If the lid sensor is unavailable, apps stay running in this mode.
+
 Under **Apps opened during Focus**, choose **Keep running** (the default) or **Pause automatically**. The policy applies while Focus is active. Closing the window leaves Focus running. Choose **Allow Sleep** or turn off the **Focus** switch to resume what Archaive paused. **Turn Off Focus** in the menu bar also turns off the switch. Quitting also resumes those processes, and a separate helper resumes them if the window process is force quit or crashes.
 
 ## Keep Awake and hotspot

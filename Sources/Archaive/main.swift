@@ -290,6 +290,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSWind
     private func updateConfirmedSleep(_ value: Bool?) {
         known = value != nil
         if let value { disabled = value }
+        if value == true && focus.closedLidOnly { focus.setLidClosed(System.lidClosed()) }
         focus.setKeepAwake(value == true)
     }
 
@@ -403,7 +404,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSWind
     }
 
     private func checkLid() {
-        guard let closed = System.lidClosed() else { lastLid = nil; return }
+        let lid = System.lidClosed()
+        focus.setLidClosed(lid)
+        guard let closed = lid else { lastLid = nil; return }
         let changed = closed != lastLid
         lastLid = closed
         if closed && changed && disabled && defaults.bool(forKey: "dimOnClose") {

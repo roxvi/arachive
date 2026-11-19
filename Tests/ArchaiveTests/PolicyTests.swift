@@ -139,6 +139,43 @@ struct PolicyTests {
         focus.setKeepAwake(true)
         XCTAssertFalse(focus.active)
         XCTAssertFalse(defaults.bool(forKey: "focusEnabled"))
+
+        XCTAssertFalse(focus.closedLidOnly)
+        focus.setClosedLidOnly(true)
+        focus.setEnabled(true)
+        XCTAssertFalse(focus.active) // An unavailable lid reading leaves apps running.
+        focus.setLidClosed(false)
+        XCTAssertFalse(focus.active)
+        expectStopped(pid, false)
+
+        focus.setLidClosed(true)
+        XCTAssertTrue(focus.active)
+        expectStopped(pid, true)
+        focus.setLidClosed(false)
+        XCTAssertFalse(focus.active)
+        expectStopped(pid, false)
+
+        focus.setLidClosed(true)
+        expectStopped(pid, true)
+        focus.setLidClosed(nil)
+        XCTAssertFalse(focus.active)
+        expectStopped(pid, false)
+
+        focus.setKeepAwake(false)
+        focus.setLidClosed(true)
+        XCTAssertFalse(focus.active)
+        focus.setKeepAwake(true)
+        expectStopped(pid, true)
+        focus.setKeepAwake(false)
+        expectStopped(pid, false)
+        focus.setLidClosed(false)
+        focus.setKeepAwake(true)
+        expectStopped(pid, false)
+        XCTAssertTrue(FocusSession(defaults: defaults).closedLidOnly)
+        focus.setClosedLidOnly(false)
+        expectStopped(pid, true)
+        focus.setClosedLidOnly(true)
+        expectStopped(pid, false)
     }
 
     private func expectStopped(_ pid: pid_t, _ stopped: Bool) {
