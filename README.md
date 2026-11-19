@@ -36,6 +36,8 @@ python3 scripts/package-dmg.py
 
 Packaging requires Python 3 and downloads pinned `dmgbuild` dependencies into an isolated `.build/dmg-venv`. It generates `dist/Archaive-<version>-arm64.dmg` and its SHA-256 file. Update `VERSION` before making a new installer; the packager refuses to overwrite existing installers. No packaging dependencies ship in the app.
 
+Closing the last Archaive window removes its Dock icon and leaves the app running in the menu bar. Choose **Open Archaive** there to bring back the window and Dock icon.
+
 ## Focus in Keep Awake
 
 Open **Archaive** from the Dock or choose **Open Archaive** from the menu bar. In **Keep Awake**, open **Focus Settings** and check the apps you want to keep running. Use **Add Apps…** to select apps that are currently closed. Turn on the **Focus** switch to pause other apps whenever Keep Awake is on. Archaive remembers the switch, your selections, and the launch policy.

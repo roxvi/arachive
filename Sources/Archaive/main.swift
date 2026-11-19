@@ -92,7 +92,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSWind
         }
         showDashboard()
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) { [weak self] in
-            guard let self, !self.defaults.bool(forKey: "hasCompletedOnboarding") else { return }
+            guard let self, self.dashboardWindow?.isVisible == true,
+                  !self.defaults.bool(forKey: "hasCompletedOnboarding") else { return }
             self.onboarding.present()
         }
     }
@@ -103,6 +104,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSWind
     }
 
     @objc private func showDashboard() {
+        if NSApp.activationPolicy() != .regular { NSApp.setActivationPolicy(.regular) }
         if let tour = onboarding.window { tour.makeKeyAndOrderFront(nil); return }
         if dashboardWindow == nil {
             let actions = DashboardActions(
@@ -128,6 +130,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSWind
                                   backing: .buffered, defer: false)
             window.title = "Archaive"
             window.titleVisibility = .hidden
+            window.delegate = self
             window.isReleasedWhenClosed = false
             window.contentView = NSHostingView(rootView: Dashboard(state: dashboard, focus: focus, actions: actions))
             window.contentMinSize = NSSize(width: 680, height: 480)
@@ -187,6 +190,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSWind
         if let window = phoneShareWindow { window.makeKeyAndOrderFront(nil); return }
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 500, height: 330), styleMask: [.titled, .closable], backing: .buffered, defer: false)
         window.title = "Share your Mac to your phone"
+        window.delegate = self
         window.isReleasedWhenClosed = false
         let help = NSTextField(wrappingLabelWithString: "Connect your iPhone and Mac to the same Wi-Fi or phone hotspot. Start sharing, then scan this QR code inside the Archaive iPhone app. You can also open a sharing link in Safari or Chrome.")
         help.frame = NSRect(x: 20, y: 229, width: 460, height: 80)
@@ -548,10 +552,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSWind
     }
 
     func windowWillClose(_ notification: Notification) {
-        guard let closing = notification.object as? NSWindow, closing === hotspotWindow else { return }
-        customPasswordInput?.stringValue = ""
-        hotspotWindow = nil
-        onboarding.setupFinished(saved: false)
+        if let closing = notification.object as? NSWindow, closing === hotspotWindow {
+            customPasswordInput?.stringValue = ""
+            hotspotWindow = nil
+            onboarding.setupFinished(saved: false)
+        }
+
+        // Wait until AppKit finishes closing the window before checking visibility.
+        DispatchQueue.main.async { [weak self] in
+            guard let self else { return }
+            let windows = [self.dashboardWindow, self.hotspotWindow, self.phoneShareWindow, self.onboarding.window]
+            let hasOpenWindow = windows.compactMap { $0 }.contains { $0.isVisible || $0.isMiniaturized }
+            if !hasOpenWindow { NSApp.setActivationPolicy(.accessory) }
+        }
     }
 
     @objc private func about() {
