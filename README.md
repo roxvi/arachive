@@ -4,6 +4,12 @@
 
 A native macOS app for pausing background apps during Focus, keeping your Mac awake, and reconnecting to your phone’s hotspot. Requires macOS 13 or later and Xcode Command Line Tools to build. Sparkle is bundled for app updates.
 
+## Screenshots
+
+![Keep Awake dashboard in P!nk, showing Focus, lid dimming, and keyboard shortcut settings](assets/screenshots/keep-awake.png)
+
+![Connections dashboard in Sunset, showing hotspot fallback and screen sharing to a phone](assets/screenshots/connections.png)
+
 ## Install
 
 Download the Apple Silicon DMG from [Releases](https://github.com/roxvi/arachive/releases), open it, and drag **Archaive** onto **Applications**. Eject the disk image, then open Archaive from Applications. The installer includes a large Finder window with the actual draggable icons and a connecting arrow.
