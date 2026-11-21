@@ -6,9 +6,9 @@ A native macOS app for pausing background apps during Focus, keeping your Mac aw
 
 ## Screenshots
 
-![Keep Awake dashboard in P!nk, showing Focus, lid dimming, and keyboard shortcut settings](assets/screenshots/keep-awake.png)
+![Keep Awake dashboard in P!nk, showing Focus, lid dimming, and keyboard shortcut settings](assets/screenshots/keep-awake-pink.png)
 
-![Connections dashboard in Sunset, showing hotspot fallback and screen sharing to a phone](assets/screenshots/connections.png)
+![Connections dashboard in Sunset, showing hotspot fallback and screen sharing to a phone](assets/screenshots/connections-sunset.png)
 
 ## Install
 
