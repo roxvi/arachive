@@ -95,6 +95,7 @@ struct Dashboard: View {
             footer
         }
         .frame(minWidth: 640, minHeight: 475)
+        .ignoresSafeArea(.container, edges: .top)
         .background {
             if let spread {
                 ThemeCanvas(theme: spread.previous, showsOutline: false)
@@ -115,7 +116,7 @@ struct Dashboard: View {
     }
 
     private var header: some View {
-        HStack(spacing: 18) {
+        HStack(spacing: 0) {
             VStack(alignment: .leading, spacing: 6) {
                 Wordmark(width: 147)
                     .foregroundStyle(theme.accent)
@@ -130,13 +131,13 @@ struct Dashboard: View {
                     .fixedSize(horizontal: false, vertical: true)
             }
             .frame(maxWidth: .infinity, alignment: .leading)
-            modeNavigation
+            Spacer(minLength: 225)
         }
         .padding(.horizontal, 30)
-        .padding(.top, 7)
-        .padding(.bottom, 10)
+        .padding(.top, 28)
         .frame(maxWidth: 1080)
-        .frame(maxWidth: .infinity)
+        .frame(maxWidth: .infinity, minHeight: 211)
+        .overlay(alignment: .topTrailing) { modeNavigation }
     }
 
     private var pageSummary: String {
@@ -149,30 +150,40 @@ struct Dashboard: View {
 
     private var modeNavigation: some View {
         let awake = status.awake == true
-        return ModeOrbit(awake: awake)
-            .stroke(theme.accent, style: StrokeStyle(lineWidth: 2.5, lineCap: .round))
-            .frame(width: 198, height: 180)
-            .accessibilityHidden(true)
-            .overlay {
-                VStack(spacing: 2) {
-                    ForEach(DashboardPage.allCases) { page in
-                        Button {
-                            withAnimation(reduceMotion ? nil : .easeInOut(duration: 0.17)) { state.page = page }
-                        } label: {
-                            Label(page.rawValue, systemImage: page.symbol)
-                                .font(.system(size: 12, weight: state.page == page ? .bold : .medium))
-                                .frame(width: 106, height: 27)
-                                .background(state.page == page ? theme.wash.opacity(0.65) : .clear, in: Capsule())
-                                .contentShape(Capsule())
-                        }
-                        .buttonStyle(.plain)
-                        .accessibilityAddTraits(state.page == page ? .isSelected : [])
-                        .accessibilityValue(page == .power && focus.active ? "Focus active" : "")
+        return ZStack(alignment: .topTrailing) {
+            CornerCrescent()
+                .fill(.linearGradient(colors: [theme.accent, theme.accent.opacity(0.74)],
+                                      startPoint: .topLeading, endPoint: .bottomTrailing))
+                .opacity(awake ? 0 : 1)
+            CornerSun()
+                .stroke(theme.accent, style: StrokeStyle(lineWidth: 4, lineCap: .round))
+                .opacity(awake ? 1 : 0)
+        }
+        .frame(width: 246, height: 211)
+        .clipped()
+        .allowsHitTesting(false)
+        .accessibilityHidden(true)
+        .animation(reduceMotion ? nil : .easeInOut(duration: 0.34), value: awake)
+        .overlay(alignment: .topTrailing) {
+            VStack(spacing: 2) {
+                ForEach(DashboardPage.allCases) { page in
+                    Button {
+                        withAnimation(reduceMotion ? nil : .easeInOut(duration: 0.17)) { state.page = page }
+                    } label: {
+                        Label(page.rawValue, systemImage: page.symbol)
+                            .font(.system(size: 12, weight: state.page == page ? .bold : .medium))
+                            .frame(width: 108, height: 27)
+                            .background(state.page == page ? theme.wash.opacity(0.65) : .clear, in: Capsule())
+                            .contentShape(Capsule())
                     }
+                    .buttonStyle(.plain)
+                    .accessibilityAddTraits(state.page == page ? .isSelected : [])
+                    .accessibilityValue(page == .power && focus.active ? "Focus active" : "")
                 }
-                .offset(x: awake ? 0 : 36)
             }
-            .animation(reduceMotion ? nil : .easeInOut(duration: 0.36), value: awake)
+            .padding(.top, 20)
+            .padding(.trailing, 15)
+        }
     }
 
     private var footer: some View {
@@ -434,5 +445,36 @@ struct Dashboard: View {
             Text(title).font(.headline)
             Text(detail).foregroundStyle(theme.muted).fixedSize(horizontal: false, vertical: true)
         }
+    }
+}
+
+
+private struct CornerCrescent: Shape {
+    func path(in rect: CGRect) -> Path {
+        let edge = rect.maxX
+        let top = CGPoint(x: edge - 218, y: -2)
+        let tip = CGPoint(x: edge + 2, y: 171)
+        var path = Path()
+        path.move(to: top)
+        path.addCurve(to: tip, control1: CGPoint(x: edge - 250, y: 123),
+                      control2: CGPoint(x: edge - 110, y: 205))
+        path.addCurve(to: top, control1: CGPoint(x: edge - 124, y: 153),
+                      control2: CGPoint(x: edge - 202, y: 88))
+        path.closeSubpath()
+        return path
+    }
+}
+
+private struct CornerSun: Shape {
+    func path(in rect: CGRect) -> Path {
+        let center = CGPoint(x: rect.maxX, y: rect.minY)
+        var path = Path()
+        path.addRelativeArc(center: center, radius: 174, startAngle: .degrees(88), delta: .degrees(94))
+        for degrees in stride(from: 90, through: 180, by: 22.5) {
+            let angle = degrees * .pi / 180
+            path.move(to: CGPoint(x: center.x + 188 * cos(angle), y: center.y + 188 * sin(angle)))
+            path.addLine(to: CGPoint(x: center.x + 204 * cos(angle), y: center.y + 204 * sin(angle)))
+        }
+        return path
     }
 }

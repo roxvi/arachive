@@ -120,7 +120,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSWind
                 replayTour: { [weak self] in self?.replayOnboarding() }
             )
             let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 860, height: 670),
-                                  styleMask: [.titled, .closable, .miniaturizable, .resizable],
+                                  styleMask: [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView],
                                   backing: .buffered, defer: false)
             window.title = "Archaive"
             window.titleVisibility = .hidden
