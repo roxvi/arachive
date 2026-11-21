@@ -23,14 +23,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSWind
     private let brightness = DisplayBrightness()
     private let phoneShare = PhoneShare()
     private var phoneShareWindow: NSWindow?
-    private var phoneShareLinks: NSTextView?
-    private var phoneShareButton: NSButton?
-    private var phoneShareQR: NSImageView?
+    private let shareWindowState = ShareWindowState()
     private var hotspotWindow: NSWindow?
-    private var hotspotInput: NSTextField?
-    private var hotspotError: NSTextField?
-    private var customPasswordToggle: NSButton?
-    private var customPasswordInput: NSSecureTextField?
     private var networkStatus = "Checking Wi-Fi…"
     private var pendingOnboardingMode: Bool?
     private var shortcutOK = false
@@ -125,15 +119,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSWind
                 stopShare: { [weak self] in self?.stopPhoneShare() },
                 replayTour: { [weak self] in self?.replayOnboarding() }
             )
-            let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 820, height: 590),
+            let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 860, height: 670),
                                   styleMask: [.titled, .closable, .miniaturizable, .resizable],
                                   backing: .buffered, defer: false)
             window.title = "Archaive"
             window.titleVisibility = .hidden
+            window.titlebarAppearsTransparent = true
+            window.appearance = NSAppearance(named: .aqua)
             window.delegate = self
             window.isReleasedWhenClosed = false
             window.contentView = NSHostingView(rootView: Dashboard(state: dashboard, focus: focus, actions: actions))
-            window.contentMinSize = NSSize(width: 680, height: 480)
+            window.contentMinSize = NSSize(width: 640, height: 475)
             window.center()
             dashboardWindow = window
         }
@@ -188,47 +184,26 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSWind
     @objc private func showPhoneShare() {
         NSApp.activate(ignoringOtherApps: true)
         if let window = phoneShareWindow { window.makeKeyAndOrderFront(nil); return }
-        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 500, height: 330), styleMask: [.titled, .closable], backing: .buffered, defer: false)
-        window.title = "Share your Mac to your phone"
+        let view = ScreenSharingView(state: shareWindowState,
+                                     toggleShare: { [weak self] in self?.togglePhoneShare() },
+                                     copyLink: { [weak self] in self?.copyPhoneShareLink() })
+        let window = connectionWindow(title: "Share Screen to Phone", size: NSSize(width: 530, height: 435), view: view)
+        phoneShareWindow = window
+        updatePhoneShare()
+        window.makeKeyAndOrderFront(nil)
+    }
+
+    private func connectionWindow<Content: View>(title: String, size: NSSize, view: Content) -> NSWindow {
+        let window = NSWindow(contentRect: NSRect(origin: .zero, size: size),
+                              styleMask: [.titled, .closable], backing: .buffered, defer: false)
+        window.title = title
+        window.titleVisibility = .hidden
+        window.appearance = NSAppearance(named: .aqua)
         window.delegate = self
         window.isReleasedWhenClosed = false
-        let help = NSTextField(wrappingLabelWithString: "Connect your iPhone and Mac to the same Wi-Fi or phone hotspot. Start sharing, then scan this QR code inside the Archaive iPhone app. You can also open a sharing link in Safari or Chrome.")
-        help.frame = NSRect(x: 20, y: 229, width: 460, height: 80)
-        window.contentView?.addSubview(help)
-        let scroll = NSScrollView(frame: NSRect(x: 20, y: 115, width: 310, height: 105))
-        scroll.hasVerticalScroller = true
-        let links = NSTextView(frame: scroll.bounds)
-        links.isEditable = false
-        links.isSelectable = true
-        links.font = .systemFont(ofSize: 14)
-        links.textContainer?.widthTracksTextView = true
-        links.autoresizingMask = [.width]
-        scroll.documentView = links
-        window.contentView?.addSubview(scroll)
-        let qr = NSImageView(frame: NSRect(x: 365, y: 115, width: 115, height: 115))
-        qr.imageScaling = .scaleProportionallyUpOrDown
-        qr.setAccessibilityLabel("Scan with your phone camera to open the screen viewer")
-        window.contentView?.addSubview(qr)
-        phoneShareQR = qr
-        let copy = NSButton(title: "Copy Link", target: self, action: #selector(copyPhoneShareLink))
-        copy.frame = NSRect(x: 20, y: 12, width: 120, height: 32)
-        copy.bezelStyle = .rounded
-        window.contentView?.addSubview(copy)
-        let note = NSTextField(wrappingLabelWithString: "View only. Physical dimming stays on. Anyone with the link can view your screen over this unencrypted local connection; use a trusted network. Locking your Mac stops sharing.")
-        note.font = .systemFont(ofSize: NSFont.smallSystemFontSize)
-        note.textColor = .secondaryLabelColor
-        note.frame = NSRect(x: 20, y: 55, width: 460, height: 53)
-        window.contentView?.addSubview(note)
-        let button = NSButton(title: "Start Sharing", target: self, action: #selector(togglePhoneShare))
-        button.frame = NSRect(x: 320, y: 12, width: 160, height: 32)
-        button.bezelStyle = .rounded
-        window.contentView?.addSubview(button)
-        phoneShareWindow = window
-        phoneShareLinks = links
-        phoneShareButton = button
-        updatePhoneShare()
+        window.contentView = NSHostingView(rootView: view)
         window.center()
-        window.makeKeyAndOrderFront(nil)
+        return window
     }
 
     @objc private func copyPhoneShareLink() {
@@ -238,18 +213,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSWind
     }
 
     private func updatePhoneShare() {
-        phoneShareQR?.image = nil
-        if let link = phoneShare.links.first,
-           let filter = CIFilter(name: "CIQRCodeGenerator") {
-            filter.setValue(Data(link.utf8), forKey: "inputMessage")
-            if let output = filter.outputImage?.transformed(by: CGAffineTransform(scaleX: 5, y: 5)),
-               let image = CIContext().createCGImage(output.composited(over: CIImage(color: .white)), from: output.extent.insetBy(dx: -20, dy: -20)) {
-                phoneShareQR?.image = NSImage(cgImage: image, size: NSSize(width: image.width, height: image.height))
-            }
+        if shareWindowState.links != phoneShare.links {
+            shareWindowState.links = phoneShare.links
+            shareWindowState.qr = phoneShare.links.first.flatMap(sharingCode)
         }
-        phoneShareButton?.title = phoneShare.active || phoneShare.starting ? "Stop Sharing" : "Start Sharing"
-        phoneShareLinks?.string = phoneShare.starting ? "Waiting for screen-capture permission…" : phoneShare.active ? (phoneShare.links.isEmpty ? "No local IPv4 address. Connect to Wi-Fi, then stop and restart sharing." : phoneShare.links.joined(separator: "\n\n")) : "Sharing is off. Start sharing to create a new private session link."
+        shareWindowState.active = phoneShare.active
+        shareWindowState.starting = phoneShare.starting
         rebuildMenu()
+    }
+
+    private func sharingCode(_ link: String) -> NSImage? {
+        guard let filter = CIFilter(name: "CIQRCodeGenerator") else { return nil }
+        filter.setValue(Data(link.utf8), forKey: "inputMessage")
+        guard let output = filter.outputImage?.transformed(by: CGAffineTransform(scaleX: 5, y: 5)),
+              let image = CIContext().createCGImage(output.composited(over: CIImage(color: .white)),
+                                                     from: output.extent.insetBy(dx: -20, dy: -20)) else { return nil }
+        return NSImage(cgImage: image, size: NSSize(width: image.width, height: image.height))
     }
 
     @objc private func togglePhoneShare() {
@@ -469,96 +448,47 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSWind
     @objc private func configureHotspot() {
         NSApp.activate(ignoringOtherApps: true)
         if let window = hotspotWindow { window.makeKeyAndOrderFront(nil); return }
-        // A normal window allows Character Viewer and the standard field editor to operate.
-        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 420, height: 355), styleMask: [.titled, .closable], backing: .buffered, defer: false)
-        window.title = "Your hotspot"
-        window.delegate = self
-        window.isReleasedWhenClosed = false
-        let content = window.contentView!
-        let help = NSTextField(wrappingLabelWithString: "Enter the exact Wi-Fi name, including emoji. By default, Archaive uses the password saved by macOS.")
-        help.frame = NSRect(x: 20, y: 282, width: 380, height: 53)
-        content.addSubview(help)
-        let input = NSTextField(frame: NSRect(x: 20, y: 242, width: 330, height: 26))
-        input.placeholderString = "Hotspot Wi-Fi name"
-        input.stringValue = defaults.string(forKey: "hotspotName") ?? ""
-        input.setAccessibilityLabel("Hotspot Wi-Fi name")
-        content.addSubview(input)
-        let emoji = NSButton(title: "☺", target: NSApp, action: #selector(NSApplication.orderFrontCharacterPalette(_:)))
-        emoji.frame = NSRect(x: 355, y: 240, width: 45, height: 30)
-        emoji.setAccessibilityLabel("Emoji and Symbols")
-        content.addSubview(emoji)
-        let toggle = NSButton(checkboxWithTitle: "Use Custom Password", target: self, action: #selector(toggleCustomPassword))
-        toggle.frame = NSRect(x: 20, y: 204, width: 380, height: 24)
-        toggle.state = defaults.bool(forKey: "hotspotUseCustomPassword") ? .on : .off
-        content.addSubview(toggle)
-        let password = NSSecureTextField(frame: NSRect(x: 20, y: 168, width: 380, height: 26))
-        password.placeholderString = "Enter password; leave blank to keep stored custom password"
-        password.setAccessibilityLabel("Custom hotspot password")
-        password.isEnabled = toggle.state == .on
-        content.addSubview(password)
-        let note = NSTextField(wrappingLabelWithString: "Stored securely in Keychain. Joining may also update macOS’s saved Wi-Fi password.")
-        note.frame = NSRect(x: 20, y: 114, width: 380, height: 44)
-        note.font = .systemFont(ofSize: NSFont.smallSystemFontSize)
-        note.textColor = .secondaryLabelColor
-        content.addSubview(note)
-        customPasswordToggle = toggle
-        customPasswordInput = password
-        let error = NSTextField(wrappingLabelWithString: "")
-        error.frame = NSRect(x: 20, y: 59, width: 380, height: 50)
-        error.textColor = .systemRed
-        content.addSubview(error)
-        let save = NSButton(title: "Save & Enable", target: self, action: #selector(saveHotspot))
-        save.frame = NSRect(x: 265, y: 15, width: 140, height: 32)
-        save.bezelStyle = .rounded
-        save.keyEquivalent = "\r"
-        content.addSubview(save)
-        hotspotInput = input
-        hotspotError = error
+        let view = HotspotSettingsView(
+            name: defaults.string(forKey: "hotspotName") ?? "",
+            useCustomPassword: defaults.bool(forKey: "hotspotUseCustomPassword"),
+            save: { [weak self] name, useCustom, password in self?.saveHotspot(name, useCustom, password) },
+            cancel: { [weak self] in self?.hotspotWindow?.close() }
+        )
+        let window = connectionWindow(title: "Your hotspot", size: NSSize(width: 465, height: 400), view: view)
         hotspotWindow = window
-        window.center()
         window.makeKeyAndOrderFront(nil)
-        window.makeFirstResponder(input)
     }
 
-    @objc private func toggleCustomPassword() {
-        customPasswordInput?.isEnabled = customPasswordToggle?.state == .on
-        hotspotError?.stringValue = ""
-    }
-
-    @objc private func saveHotspot() {
-        guard let input = hotspotInput else { return }
-        let name = input.stringValue
-        if let error = System.hotspotNameError(name) { hotspotError?.stringValue = error; return }
-        let useCustom = customPasswordToggle?.state == .on
+    private func saveHotspot(_ name: String, _ useCustom: Bool, _ entered: String) -> String? {
+        if let error = System.hotspotNameError(name) { return error }
         if useCustom {
             do {
-                let entered = customPasswordInput?.stringValue ?? ""
                 let password: String
                 if entered.isEmpty { password = try HotspotPassword.read(for: name) ?? "" }
                 else { password = entered }
-                if let error = System.customPasswordError(password) { hotspotError?.stringValue = error; return }
+                if let error = System.customPasswordError(password) { return error }
                 if !entered.isEmpty { try HotspotPassword.save(password, for: name) }
-            } catch { hotspotError?.stringValue = error.localizedDescription; return }
+            } catch { return error.localizedDescription }
         }
         defaults.set(useCustom, forKey: "hotspotUseCustomPassword")
         defaults.set(name, forKey: "hotspotName")
         defaults.set(true, forKey: "hotspotEnabled")
-        hotspotWindow?.close()
+        let window = hotspotWindow
         hotspotWindow = nil
-        hotspotInput = nil
-        hotspotError = nil
-        customPasswordInput?.stringValue = ""
-        customPasswordInput = nil
-        customPasswordToggle = nil
+        window?.close()
         onboarding.setupFinished(saved: true)
         updateDashboard()
+        return nil
     }
 
     func windowWillClose(_ notification: Notification) {
-        if let closing = notification.object as? NSWindow, closing === hotspotWindow {
-            customPasswordInput?.stringValue = ""
-            hotspotWindow = nil
-            onboarding.setupFinished(saved: false)
+        if let closing = notification.object as? NSWindow {
+            if closing === hotspotWindow {
+                hotspotWindow = nil
+                onboarding.setupFinished(saved: false)
+            } else if closing === phoneShareWindow {
+                phoneShareWindow = nil
+            }
         }
 
         // Wait until AppKit finishes closing the window before checking visibility.

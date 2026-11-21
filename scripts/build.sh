@@ -7,7 +7,8 @@ VERSION=$(<VERSION)
 APP="$PWD/dist/Archaive.app"
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
 cp .build/release/Archaive "$APP/Contents/MacOS/Archaive"
-swift scripts/app-icon.swift .build/Archaive.iconset
+cp Sources/Archaive/Resources/Wordmark.png "$APP/Contents/Resources/Wordmark.png"
+swift scripts/app-icon.swift .build/Archaive.iconset assets/icon.svg
 iconutil -c icns .build/Archaive.iconset -o "$APP/Contents/Resources/Archaive.icns"
 cat > "$APP/Contents/Info.plist" <<PLIST
 <?xml version="1.0" encoding="UTF-8"?>

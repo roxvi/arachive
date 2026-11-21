@@ -3,6 +3,7 @@ import SwiftUI
 enum DashboardPage: String, CaseIterable, Identifiable {
     case power = "Keep Awake"
     case connection = "Connections"
+    case examples = "Examples"
 
     var id: Self { self }
 
@@ -10,6 +11,7 @@ enum DashboardPage: String, CaseIterable, Identifiable {
         switch self {
         case .power: return "sun.max"
         case .connection: return "personalhotspot"
+        case .examples: return "sparkles"
         }
     }
 }
@@ -57,67 +59,179 @@ struct Dashboard: View {
     @State private var search = ""
     @State private var showFocusSettings = false
 
+    @AppStorage(AppTheme.storageKey) private var theme = AppTheme.defaultTheme
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @State private var spread: Spread?
+    @State private var spreadProgress: CGFloat = 0
+    @State private var spreadTask: Task<Void, Never>?
+
+    private struct Spread {
+        let previous: AppTheme
+        let origin: CGPoint
+    }
+
     private var status: DashboardState.Status { state.status }
 
     var body: some View {
-        HStack(spacing: 0) {
-            sidebar
-            Divider()
-            Group {
-                switch state.page {
-                case .power: powerPage
-                case .connection: connectionsPage
+        VStack(spacing: 0) {
+            header
+            ScrollView {
+                Group {
+                    switch state.page {
+                    case .power: powerPage
+                    case .connection: connectionsPage
+                    case .examples:
+                        ExamplesPage(shortcut: status.shortcut)
+                    }
                 }
+                .frame(maxWidth: 1020)
+                .frame(maxWidth: .infinity)
+                .padding(.horizontal, 30)
+                .padding(.top, 6)
+                .padding(.bottom, 28)
+                .id(state.page)
+                .transition(.opacity)
             }
-            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-            .background(Color(nsColor: .windowBackgroundColor))
+            footer
         }
-        .frame(minWidth: 680, minHeight: 480)
+        .frame(minWidth: 640, minHeight: 475)
+        .background {
+            if let spread {
+                ThemeCanvas(theme: spread.previous, showsOutline: false)
+                ThemeCanvas(theme: theme, showsOutline: false).clipShape(InkSpread(progress: spreadProgress, origin: spread.origin))
+            } else {
+                ThemeCanvas(theme: theme, showsOutline: false)
+            }
+        }
+        .coordinateSpace(name: "themeCanvas")
+        .environment(\.appTheme, theme)
+        .environment(\.colorScheme, .light)
+        .foregroundStyle(theme.ink)
+        .tint(theme.accent)
+        .onDisappear {
+            spreadTask?.cancel()
+            spread = nil
+        }
     }
 
-    private var sidebar: some View {
-        VStack(alignment: .leading, spacing: 5) {
-            HStack(spacing: 9) {
-                Image(nsImage: NSApp.applicationIconImage).resizable().frame(width: 29, height: 29)
-                    .accessibilityHidden(true)
-                Text("Archaive").font(.system(size: 17, weight: .semibold))
+    private var header: some View {
+        HStack(spacing: 18) {
+            VStack(alignment: .leading, spacing: 6) {
+                Wordmark(width: 147)
+                    .foregroundStyle(theme.accent)
+                    .padding(.bottom, 13)
+                Text(state.page.rawValue)
+                    .font(.system(size: 42, weight: .bold, design: .rounded))
+                    .tracking(-1.3)
+                    .accessibilityAddTraits(.isHeader)
+                Text(pageSummary)
+                    .font(.system(size: 14))
+                    .foregroundStyle(theme.muted)
+                    .fixedSize(horizontal: false, vertical: true)
             }
-            .padding(.horizontal, 8)
-            .padding(.bottom, 19)
-            ForEach(DashboardPage.allCases) { page in
-                Button {
-                    state.page = page
-                } label: {
-                    HStack(spacing: 9) {
-                        Image(systemName: page.symbol).frame(width: 19)
-                        Text(page.rawValue)
-                        Spacer(minLength: 0)
-                        if page == .power && focus.active {
-                            Circle().fill(Color(nsColor: .systemGreen)).frame(width: 6, height: 6)
-                                .accessibilityHidden(true)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            modeNavigation
+        }
+        .padding(.horizontal, 30)
+        .padding(.top, 7)
+        .padding(.bottom, 10)
+        .frame(maxWidth: 1080)
+        .frame(maxWidth: .infinity)
+    }
+
+    private var pageSummary: String {
+        switch state.page {
+        case .power: "Control sleep, the lid display, and which apps stay active."
+        case .connection: "Stay online with hotspot fallback or share your Mac screen to a phone."
+        case .examples: "Try six workflows in a preview. Your Mac’s settings stay as they are."
+        }
+    }
+
+    private var modeNavigation: some View {
+        let awake = status.awake == true
+        return ModeOrbit(awake: awake)
+            .stroke(theme.accent, style: StrokeStyle(lineWidth: 2.5, lineCap: .round))
+            .frame(width: 198, height: 180)
+            .accessibilityHidden(true)
+            .overlay {
+                VStack(spacing: 2) {
+                    ForEach(DashboardPage.allCases) { page in
+                        Button {
+                            withAnimation(reduceMotion ? nil : .easeInOut(duration: 0.17)) { state.page = page }
+                        } label: {
+                            Label(page.rawValue, systemImage: page.symbol)
+                                .font(.system(size: 12, weight: state.page == page ? .bold : .medium))
+                                .frame(width: 106, height: 27)
+                                .background(state.page == page ? theme.wash.opacity(0.65) : .clear, in: Capsule())
+                                .contentShape(Capsule())
                         }
+                        .buttonStyle(.plain)
+                        .accessibilityAddTraits(state.page == page ? .isSelected : [])
+                        .accessibilityValue(page == .power && focus.active ? "Focus active" : "")
                     }
-                    .font(.system(size: 13, weight: state.page == page ? .semibold : .regular))
-                    .padding(.horizontal, 9).padding(.vertical, 8)
-                    .background(state.page == page ? Color(nsColor: .selectedContentBackgroundColor).opacity(0.15) : .clear,
-                                in: RoundedRectangle(cornerRadius: 6))
-                    .contentShape(Rectangle())
                 }
-                .buttonStyle(.plain)
-                .accessibilityAddTraits(state.page == page ? .isSelected : [])
-                .accessibilityValue(page == .power && focus.active ? "Focus active" : "")
+                .offset(x: awake ? 0 : 36)
+            }
+            .animation(reduceMotion ? nil : .easeInOut(duration: 0.36), value: awake)
+    }
+
+    private var footer: some View {
+        HStack(spacing: 12) {
+            HStack(spacing: 8) {
+                Text("Theme").font(.callout.weight(.semibold)).foregroundStyle(theme.muted).fixedSize()
+                ForEach(AppTheme.allCases) { option in
+                    GeometryReader { proxy in
+                        Button {
+                            let frame = proxy.frame(in: .named("themeCanvas"))
+                            selectTheme(option, at: CGPoint(x: frame.minX + 14, y: frame.midY))
+                        } label: {
+                            HStack(spacing: 6) {
+                                ThemeSwatch(theme: option, selected: option == theme)
+                                    .frame(width: 17, height: 17)
+                                Text(option.name).font(.system(size: 12, weight: .medium)).fixedSize()
+                            }
+                            .padding(.horizontal, 6)
+                            .frame(height: 31)
+                            .contentShape(Rectangle())
+                        }
+                        .buttonStyle(.plain)
+                        .help(option.name)
+                        .accessibilityLabel(option.name)
+                        .accessibilityAddTraits(option == theme ? .isSelected : [])
+                    }
+                    .frame(width: option == .monochrome ? 108 : option == .sunset ? 73 : 58, height: 31)
+                }
             }
             Spacer()
-            Button(action: actions.replayTour) {
-                Label("Welcome Tour", systemImage: "questionmark.circle")
-            }
-            .buttonStyle(.borderless)
-            .padding(8)
+            Button(action: actions.replayTour) { Label("Welcome Tour", systemImage: "play.circle") }
+                .buttonStyle(InkButton(prominent: false))
         }
-        .padding(.horizontal, 13)
-        .padding(.vertical, 20)
-        .frame(width: 174)
-        .background(Color(nsColor: .controlBackgroundColor))
+        .padding(.horizontal, 30)
+        .padding(.vertical, 12)
+        .background(.white.opacity(0.52))
+        .overlay(alignment: .top) { Rectangle().fill(theme.line).frame(height: 1) }
+    }
+
+    private func selectTheme(_ selection: AppTheme, at origin: CGPoint) {
+        guard theme != selection else { return }
+        spreadTask?.cancel()
+        guard !reduceMotion else {
+            theme = selection
+            spread = nil
+            return
+        }
+        spread = Spread(previous: theme, origin: origin)
+        spreadProgress = 0
+        withAnimation(.easeInOut(duration: 0.55)) { theme = selection }
+        spreadTask = Task { @MainActor in
+            // Commit the collapsed mask before its expansion.
+            try? await Task.sleep(nanoseconds: 25_000_000)
+            guard !Task.isCancelled else { return }
+            withAnimation(.timingCurve(0.24, 0.6, 0.27, 1, duration: 0.71)) { spreadProgress = 1 }
+            try? await Task.sleep(nanoseconds: 750_000_000)
+            guard !Task.isCancelled else { return }
+            spread = nil
+        }
     }
 
     private var focusSettings: some View {
@@ -171,7 +285,6 @@ struct Dashboard: View {
                     .padding(.top, 9)
                     .accessibilityAddTraits(.updatesFrequently)
             }
-            Divider().padding(.top, 15)
         }
     }
 
@@ -223,91 +336,103 @@ struct Dashboard: View {
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .background(Color(nsColor: .controlBackgroundColor), in: RoundedRectangle(cornerRadius: 7))
-        .overlay(RoundedRectangle(cornerRadius: 7).strokeBorder(Color(nsColor: .separatorColor), lineWidth: 1))
+        .background(theme.wash.opacity(0.16), in: RoundedRectangle(cornerRadius: 7))
+        .overlay(RoundedRectangle(cornerRadius: 7).strokeBorder(theme.line, lineWidth: 1))
         .clipShape(RoundedRectangle(cornerRadius: 7))
     }
 
     private var powerPage: some View {
-        settingsPage("Keep Awake", "Manage sleep, the lid display, and your keyboard shortcut.") {
-            setting("Sleep", status.busy ? "Updating sleep setting…" : status.awake.map {
-                $0 ? "Your Mac stays awake, including with the lid closed." : "Your Mac sleeps normally."
-            } ?? "Reading the macOS sleep setting…") {
+        VStack(alignment: .leading, spacing: 16) {
+            setting(
+                status.awake.map { $0 ? "Keeping awake" : "Normal sleep" } ?? "Checking sleep",
+                status.busy ? "Updating sleep setting…" : status.awake.map {
+                    $0 ? "Keep Awake is on, even with the lid closed. Keep your Mac ventilated."
+                       : "Turn on Keep Awake to finish work with the lid closed."
+                } ?? "Reading the macOS sleep setting…"
+            ) {
                 Button(status.awake == true ? "Allow Sleep" : "Keep Awake", action: actions.toggleSleep)
-                    .buttonStyle(.borderedProminent)
+                    .buttonStyle(InkButton())
                     .disabled(status.busy || status.awake == nil)
             }
-            focusSettings
-            setting("Fully dim when the lid closes", "Restore the previous brightness when the lid opens.") {
-                Toggle("Fully dim when the lid closes", isOn: Binding(get: { status.dim }, set: { _ in actions.toggleDimming() }))
-                    .labelsHidden().toggleStyle(.switch)
-            }
-            setting("Keyboard shortcut", status.shortcutAvailable ? "Click the keys to record a shortcut." : "Shortcut unavailable. Click the keys to change it.") {
-                ShortcutRecorder(shortcut: status.shortcut, keySize: 24, save: actions.saveShortcut,
-                                 recordingChanged: actions.recordingShortcut)
-            }
-            setting("Password-free toggles", status.authorized ? "One-time administrator approval is installed." : "Approve once to change the macOS sleep setting.") {
-                Button(status.authorized ? "Remove Access…" : "Set Up…",
-                       action: status.authorized ? actions.removeSleepAccess : actions.setupSleepAccess)
-                    .disabled(status.busy)
-            }
-            if status.canRestore {
-                setting("Previous sleep setting", "Restore the setting from before Archaive changed it.") {
-                    Button("Restore", action: actions.restoreSleep).disabled(status.busy)
+            .padding(.horizontal, 20)
+            .background(theme.wash.opacity(0.34), in: RoundedRectangle(cornerRadius: 20))
+            VStack(alignment: .leading, spacing: 0) {
+                focusSettings
+                rule
+                setting("Fully dim when the lid closes", "Restore the previous brightness when the lid opens.") {
+                    Toggle("Fully dim when the lid closes", isOn: Binding(get: { status.dim }, set: { _ in actions.toggleDimming() }))
+                        .labelsHidden().toggleStyle(.switch)
+                }
+                rule
+                setting("Keyboard shortcut", status.shortcutAvailable ? "Click the keys to record a shortcut." : "Shortcut unavailable. Click the keys to change it.") {
+                    ShortcutRecorder(shortcut: status.shortcut, keySize: 24, save: actions.saveShortcut,
+                                     recordingChanged: actions.recordingShortcut)
+                }
+                rule
+                setting("Password-free toggles", status.authorized ? "One-time administrator approval is installed." : "Approve once to change the macOS sleep setting.") {
+                    Button(status.authorized ? "Remove Access…" : "Set Up…",
+                           action: status.authorized ? actions.removeSleepAccess : actions.setupSleepAccess)
+                        .buttonStyle(InkButton(prominent: false))
+                        .disabled(status.busy)
+                }
+                if status.canRestore {
+                    rule
+                    setting("Previous sleep setting", "Restore the setting from before Archaive changed it.") {
+                        Button("Restore", action: actions.restoreSleep)
+                            .buttonStyle(InkButton(prominent: false)).disabled(status.busy)
+                    }
                 }
             }
+            .padding(.horizontal, 20)
+            .padding(.bottom, 7)
+            .modifier(FogPanel())
         }
     }
 
     private var connectionsPage: some View {
-        settingsPage("Connections", "Set up Wi-Fi fallback and share your Mac screen to a phone.") {
+        VStack(alignment: .leading, spacing: 0) {
             setting("Hotspot fallback", status.hotspotName.map { "\($0) · \(status.network)" } ?? "Choose a hotspot to reconnect when Wi-Fi drops.") {
                 HStack {
-                    Button("Hotspot Settings…", action: actions.configureHotspot)
+                    Button("Hotspot Settings…", action: actions.configureHotspot).buttonStyle(InkButton(prominent: false))
                     Toggle("Hotspot fallback", isOn: Binding(get: { status.hotspotEnabled }, set: { _ in actions.toggleHotspot() }))
                         .labelsHidden().toggleStyle(.switch)
                 }
             }
+            rule
             setting("Share Screen to Phone", status.startingShare ? "Waiting for screen-capture permission…" : status.sharing ? "Screen sharing is active." : "Start a view-only session on your local network.") {
                 HStack {
-                    if status.sharing || status.startingShare { Button("Stop Sharing", action: actions.stopShare) }
-                    Button(status.sharing ? "Show QR Code…" : "Open Sharing…", action: actions.configureShare)
+                    if status.sharing || status.startingShare { Button("Stop Sharing", action: actions.stopShare).buttonStyle(InkButton(prominent: false)) }
+                    Button(status.sharing ? "Show QR Code…" : "Open Sharing…", action: actions.configureShare).buttonStyle(InkButton())
                 }
             }
         }
+        .padding(.horizontal, 20).padding(.vertical, 6)
+        .modifier(FogPanel())
     }
 
-    private func settingsPage<Content: View>(_ title: String, _ summary: String, @ViewBuilder content: () -> Content) -> some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 0) {
-                heading(title, summary).padding(.bottom, 20)
-                Divider()
-                content()
-            }
-            .padding(24)
-            .frame(maxWidth: .infinity, alignment: .leading)
-        }
-    }
-
-    private func heading(_ title: String, _ summary: String) -> some View {
-        VStack(alignment: .leading, spacing: 4) {
-            Text(title).font(.system(size: 32, weight: .bold)).accessibilityAddTraits(.isHeader)
-            Text(summary).font(.subheadline).foregroundStyle(.secondary)
-        }
+    private var rule: some View {
+        Rectangle().fill(theme.line).frame(height: 1)
     }
 
     private func setting<Control: View>(_ title: String, _ detail: String, @ViewBuilder control: () -> Control) -> some View {
-        VStack(spacing: 0) {
+        ViewThatFits(in: .horizontal) {
             HStack(spacing: 14) {
-                VStack(alignment: .leading, spacing: 4) {
-                    Text(title).font(.headline)
-                    Text(detail).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
-                }
+                settingCopy(title, detail).frame(minWidth: 190, alignment: .leading)
                 Spacer(minLength: 0)
+                control().fixedSize()
+            }
+            VStack(alignment: .leading, spacing: 10) {
+                settingCopy(title, detail)
                 control()
             }
-            .padding(.vertical, 15)
-            Divider()
+        }
+        .padding(.vertical, 15)
+    }
+
+    private func settingCopy(_ title: String, _ detail: String) -> some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Text(title).font(.headline)
+            Text(detail).foregroundStyle(theme.muted).fixedSize(horizontal: false, vertical: true)
         }
     }
 }

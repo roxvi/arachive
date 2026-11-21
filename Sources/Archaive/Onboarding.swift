@@ -68,6 +68,7 @@ final class OnboardingController {
         model.saveShortcut = { [weak self] in self?.saveShortcut?($0) }
         model.recordingChanged = { [weak self] in self?.recordingShortcut?($0) }
         let panel = TakeoverWindow(contentRect: screen.frame, styleMask: .borderless, backing: .buffered, defer: false)
+        panel.appearance = NSAppearance(named: .aqua)
         panel.backgroundColor = .clear
         panel.isOpaque = false
         panel.hasShadow = false
@@ -137,7 +138,7 @@ final class OnboardingController {
     }
 
     func dismiss() {
-        guard let panel = window else { return }
+        guard let panel = window, escaping != nil else { return }
         UserDefaults.standard.set(true, forKey: "hasCompletedOnboarding")
         if let escaping { NSEvent.removeMonitor(escaping); self.escaping = nil }
         NSAnimationContext.runAnimationGroup { context in
@@ -154,70 +155,165 @@ final class OnboardingController {
     }
 }
 
-private struct Backdrop: NSViewRepresentable {
-    func makeNSView(context: Context) -> NSVisualEffectView {
-        let view = NSVisualEffectView()
-        view.material = .hudWindow
-        view.blendingMode = .behindWindow
-        view.state = .active
-        return view
-    }
-    func updateNSView(_ view: NSVisualEffectView, context: Context) {}
-}
-
 private struct OnboardingView: View {
     @ObservedObject var model: OnboardingModel
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    private let sunset = Color(red: 1, green: 0.66, blue: 0.43)
+    @AppStorage(AppTheme.storageKey) private var themeID = ""
+    @State private var logoRevealed = false
+
+    private var theme: AppTheme { AppTheme(rawValue: themeID) ?? .defaultTheme }
 
     var body: some View {
         GeometryReader { geometry in
+            let margin: CGFloat = geometry.size.width < 680 ? 20 : 38
             ZStack {
-                Backdrop()
-                Color.black.opacity(0.77)
-                RadialGradient(colors: [sunset.opacity(0.18), Color(red: 0.65, green: 0.24, blue: 0.36).opacity(0.08), .clear], center: .trailing, startRadius: 0, endRadius: 700)
+                ThemeCanvas(theme: theme, glass: true)
                 if model.step == 4, let target = model.target {
-                    MenuBarArrows(target: target).allowsHitTesting(false).accessibilityHidden(true)
+                    MenuBarPointer(target: target)
+                        .stroke(theme.accent, style: StrokeStyle(lineWidth: 2, lineCap: .round))
+                        .allowsHitTesting(false)
+                        .accessibilityHidden(true)
                 }
-                VStack(spacing: 20) {
-                    HStack {
-                        Spacer()
-                        Text(String(format: "%02d / 05", model.step + 1)).font(.system(size: 13, design: .monospaced)).foregroundStyle(.white.opacity(0.65))
-                        Button("Skip") { model.finish?() }.buttonStyle(.plain).padding(.leading, 20)
-                    }.padding(.top, 40)
+                VStack(spacing: 14) {
+                    topRail
                     GeometryReader { viewport in
                         HStack(spacing: 0) {
                             ForEach(0..<5) { step in
-                                TourPage(model: model, step: step)
-                                    .frame(width: viewport.size.width, height: viewport.size.height)
+                                Group {
+                                    if step == 0 { welcome }
+                                    else { TourPage(model: model, step: step) }
+                                }
+                                .frame(width: viewport.size.width, height: viewport.size.height)
+                                .disabled(step != model.step)
+                                .allowsHitTesting(step == model.step)
+                                .accessibilityHidden(step != model.step)
                             }
                         }
                         .offset(x: -CGFloat(model.step) * viewport.size.width)
-                        .animation(reduceMotion ? nil : .timingCurve(0.22, 0.8, 0.24, 1, duration: 0.7), value: model.step)
+                        .animation(reduceMotion ? nil : .spring(response: 0.57, dampingFraction: 0.9), value: model.step)
                         .frame(width: viewport.size.width, alignment: .leading)
                     }
                     .clipped()
-                    HStack {
-                        Button("Back") { advance(-1) }.disabled(model.step == 0).buttonStyle(.plain)
-                        Spacer()
-                        HStack(spacing: 8) {
-                            ForEach(0..<5) { index in
-                                Capsule().fill(index == model.step ? sunset : .white.opacity(0.22)).frame(width: index == model.step ? 28 : 8, height: 5)
-                            }
-                        }
-                        .accessibilityLabel("Step \(model.step + 1) of 5")
-                        .animation(reduceMotion ? nil : .timingCurve(0.22, 0.8, 0.24, 1, duration: 0.38), value: model.step)
-                        Spacer()
-                        Button(model.step == 4 ? "Finish" : "Continue") {
-                            if model.step == 4 { model.finish?() } else { advance(1) }
-                        }.buttonStyle(TourButton()).frame(width: 225, alignment: .trailing).keyboardShortcut(.defaultAction)
-                    }.padding(.bottom, 8)
-                }.padding(.horizontal, geometry.size.width < 600 ? 20 : 32).padding(.bottom, 24)
-            }.foregroundStyle(.white).preferredColorScheme(.dark)
+                    bottomRail
+                }
+                .padding(.horizontal, margin)
+                .padding(.top, 42)
+                .padding(.bottom, 25)
+            }
+            .foregroundStyle(theme.ink)
+            .environment(\.appTheme, theme)
+            .environment(\.colorScheme, .light)
+            .tint(theme.accent)
+        }
+        .onAppear {
+            withAnimation(reduceMotion ? .easeOut(duration: 0.15) : .spring(response: 0.66, dampingFraction: 0.68).delay(0.12)) {
+                logoRevealed = true
+            }
         }
     }
 
-    private func advance(_ delta: Int) { model.move(delta) }
+    private var topRail: some View {
+        HStack {
+            Wordmark(width: 132)
+                .foregroundStyle(theme.accent)
+                .opacity(model.step == 0 ? 0 : 1)
+                .accessibilityHidden(model.step == 0)
+            Spacer()
+            Button("Skip Setup") { model.finish?() }.buttonStyle(InkButton(prominent: false))
+        }
+    }
+
+    private var welcome: some View {
+        GeometryReader { viewport in
+            ScrollView {
+                VStack(spacing: 22) {
+                    Wordmark(width: min(viewport.size.width * 0.79, 460))
+                        .foregroundStyle(theme.accent)
+                        .rotationEffect(.degrees(logoRevealed || reduceMotion ? 0 : -8))
+                        .scaleEffect(logoRevealed || reduceMotion ? 1 : 0.55)
+                        .offset(y: logoRevealed || reduceMotion ? 0 : 24)
+                        .opacity(logoRevealed ? 1 : 0)
+                    VStack(spacing: 8) {
+                        Text("Close the lid. Keep working.")
+                            .font(.system(size: 35, weight: .bold, design: .rounded))
+                            .accessibilityAddTraits(.isHeader)
+                        Text("Keep your Mac awake, dim the display, and reconnect when Wi-Fi drops.")
+                            .font(.system(size: 15))
+                            .foregroundStyle(theme.muted)
+                    }
+                    .multilineTextAlignment(.center)
+                    VStack(alignment: .leading, spacing: 12) {
+                        Text("Choose your theme").font(.headline).accessibilityAddTraits(.isHeader)
+                        ViewThatFits(in: .horizontal) {
+                            HStack(spacing: 10) {
+                                ForEach(AppTheme.allCases) { themeChoice($0).frame(minWidth: 132) }
+                            }
+                            VStack(spacing: 8) {
+                                ForEach(AppTheme.allCases) { themeChoice($0) }
+                            }
+                        }
+                    }
+                    .padding(18)
+                    .frame(maxWidth: 525)
+                    .modifier(FogPanel())
+                }
+                .padding(.horizontal, 8)
+                .padding(.vertical, 24)
+                .frame(maxWidth: .infinity, minHeight: viewport.size.height)
+            }
+        }
+    }
+
+    private func themeChoice(_ option: AppTheme) -> some View {
+        let selected = themeID == option.rawValue
+        return Button {
+            withAnimation(reduceMotion ? nil : .easeInOut(duration: 0.32)) { themeID = option.rawValue }
+        } label: {
+            HStack(spacing: 8) {
+                ThemeSwatch(theme: option, selected: selected).frame(width: 22, height: 22)
+                Text(option.name).font(.system(size: 13, weight: .semibold))
+                    .fixedSize(horizontal: true, vertical: false)
+            }
+            .foregroundStyle(option.ink)
+            .padding(.horizontal, 8)
+            .padding(.vertical, 11)
+            .frame(maxWidth: .infinity)
+            .background(option.paper, in: RoundedRectangle(cornerRadius: 12))
+            .overlay {
+                RoundedRectangle(cornerRadius: 12)
+                    .strokeBorder(selected ? option.accent : option.line, lineWidth: selected ? 2 : 1)
+            }
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityAddTraits(selected ? .isSelected : [])
+    }
+
+    private var bottomRail: some View {
+        HStack {
+            Button("Back") { model.move(-1) }
+                .buttonStyle(InkButton(prominent: false))
+                .disabled(model.step == 0)
+            Spacer()
+            HStack(spacing: 7) {
+                ForEach(0..<5) { index in
+                    Capsule().fill(index == model.step ? theme.accent : theme.line)
+                        .frame(width: index == model.step ? 23 : 7, height: 5)
+                }
+            }
+            .accessibilityElement(children: .ignore)
+            .accessibilityLabel("Step \(model.step + 1) of 5")
+            .animation(reduceMotion ? nil : .easeOut(duration: 0.3), value: model.step)
+            Spacer()
+            Button(model.step == 4 ? "Finish" : "Continue") {
+                if model.step == 4 { model.finish?() }
+                else { model.move(1) }
+            }
+            .buttonStyle(InkButton())
+            .disabled(model.step == 0 && AppTheme(rawValue: themeID) == nil)
+            .keyboardShortcut(.defaultAction)
+        }
+    }
 }
 
 // Pages share one sliding track; each retains its scroll position and content.
@@ -225,7 +321,7 @@ private struct TourPage: View {
     @ObservedObject var model: OnboardingModel
     let step: Int
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    private let sunset = Color(red: 1, green: 0.66, blue: 0.43)
+    @Environment(\.appTheme) private var theme
     private let titles = ["Close the lid.\nKeep things going.", "A shortcut you won’t\ntype by accident.", "Lights down.\nWork still running.", "Wi-Fi left?\nBring your own.", "We live up here."]
     private var bodies: [String] { [
         "Keep your Mac awake, dim its display when the lid closes, and reconnect to your hotspot when Wi-Fi drops. Open Archaive from the Dock to manage these settings.",
@@ -239,125 +335,108 @@ private struct TourPage: View {
         GeometryReader { geometry in
             ScrollView {
                 ViewThatFits(in: .horizontal) {
-                    HStack(alignment: .center, spacing: 56) {
-                        copy.frame(width: 410)
-                        stage.frame(width: 390)
-                    }.frame(minWidth: 856)
-                    VStack(alignment: .leading, spacing: 28) { copy; stage }
+                    HStack(alignment: .center, spacing: 38) {
+                        copy.frame(width: 360)
+                        stage.frame(width: 370)
+                    }
+                    VStack(alignment: .leading, spacing: 24) { copy; stage }.frame(maxWidth: 450)
                 }
                 .padding(.vertical, 32)
                 .padding(.horizontal, 10)
                 .frame(maxWidth: .infinity, minHeight: geometry.size.height)
             }
         }
-        .disabled(step != model.step)
-        .allowsHitTesting(step == model.step)
-        .accessibilityHidden(step != model.step)
     }
 
     private var copy: some View {
         VStack(alignment: .leading, spacing: 22) {
-            Text(["MEET ARCHAIVE", "TRY IT SAFELY", "FULL DIM, STILL AWAKE", "YOUR FIRST SETUP", "ALWAYS WITHIN REACH"][step])
-                .font(.system(size: 12, weight: .medium, design: .monospaced)).foregroundStyle(sunset)
             Text(titles[step]).font(.system(size: 44, weight: .bold, design: .rounded)).fixedSize(horizontal: false, vertical: true)
-            Text(bodies[step]).font(.system(size: 16)).foregroundStyle(.white.opacity(0.78)).lineSpacing(5).fixedSize(horizontal: false, vertical: true)
-            if step == 0 { Text("An awake Mac still uses battery and produces heat. Don’t put it in a bag while keep awake is on.").font(.system(size: 12)).foregroundStyle(.white.opacity(0.6)) }
+            Text(bodies[step]).font(.system(size: 16)).foregroundStyle(theme.muted).lineSpacing(5).fixedSize(horizontal: false, vertical: true)
+            if step == 2 { Text("An awake Mac uses battery and produces heat. Keep it ventilated and out of your bag.").font(.callout).foregroundStyle(theme.muted) }
         }
     }
 
     @ViewBuilder private var stage: some View {
         VStack(spacing: step == 1 ? 20 : 24) {
-            if step <= 1 {
-                MorphSleepIcon(progress: model.awake ? 1 : 0)
-                    .foregroundStyle(model.awake ? sunset : .white)
+            if step == 1 {
+                ModeOrbit(awake: model.awake)
+                    .stroke(theme.accent, style: StrokeStyle(lineWidth: 2, lineCap: .round))
                     .frame(width: 90, height: 80)
                     .animation(reduceMotion ? nil : .easeInOut(duration: 0.45), value: model.awake)
                     .accessibilityLabel(model.awake ? "Keep awake on" : "Keep awake off")
                 Text(model.awake ? "Mac stays awake" : "Mac sleeps normally").font(.system(size: 24, weight: .semibold, design: .rounded))
-                if step == 1 {
-                    Text("We chose ⌃⌥⌘K because it’s hard to press by accident. Feel free to change it.")
-                        .font(.system(size: 13)).foregroundStyle(.white.opacity(0.78))
-                        .multilineTextAlignment(.center).fixedSize(horizontal: false, vertical: true)
-                    VStack(spacing: 10) {
-                        ShortcutRecorder(shortcut: model.shortcut, keySize: 50,
-                            save: { model.saveShortcut?($0) },
-                            recordingChanged: { model.recordingChanged?($0) })
-                            .frame(height: 50)
-                        Text("Click to edit · Press your shortcut · Esc to cancel")
-                            .font(.system(size: 12)).foregroundStyle(.white.opacity(0.65))
-                    }
-                    VStack(spacing: 12) {
-                        Button("Try the toggle") { model.toggleSleep() }.buttonStyle(TourButton())
-                        Text(model.practiced ? "That’s it. Only the preview changed." : "Practice here without changing your Mac.")
-                            .font(.system(size: 12)).foregroundStyle(sunset)
-                    }
-                    Divider()
-                    VStack(spacing: 12) {
-                        if model.authorizationReady {
-                            Label("Administrator access approved", systemImage: "checkmark.circle.fill")
-                                .font(.system(size: 14, weight: .medium)).foregroundStyle(sunset)
-                        } else {
-                            Button("Approve Once") { model.authorize?() }
-                                .buttonStyle(TourButton()).disabled(model.authorizationBusy)
-                            Text(model.authorizationStatus).font(.system(size: 13)).foregroundStyle(sunset).multilineTextAlignment(.center)
-                        }
-                        Text("Allows only the keep-awake on/off commands without a password. No password is stored. Remove access from the menu after restoring sleep.")
-                            .font(.system(size: 12)).foregroundStyle(.white.opacity(0.65)).multilineTextAlignment(.center)
-                    }
-                } else {
-                    VStack(alignment: .leading, spacing: 16) {
-                        Label("Toggle Keep Awake     \(model.shortcut.label)", systemImage: "sun.max")
-                        Label("Fully Dim When Lid Closes", systemImage: "display")
-                        Divider()
-                        Label("Auto-Connect to Hotspot", systemImage: "wifi")
-                        Label("Hotspot Settings…", systemImage: "gearshape")
-                    }.font(.system(size: 14))
+                Text("We chose ⌃⌥⌘K because it’s hard to press by accident. Feel free to change it.")
+                    .font(.system(size: 13)).foregroundStyle(theme.muted)
+                    .multilineTextAlignment(.center).fixedSize(horizontal: false, vertical: true)
+                VStack(spacing: 10) {
+                    ShortcutRecorder(shortcut: model.shortcut, keySize: 38,
+                        save: { model.saveShortcut?($0) },
+                        recordingChanged: { model.recordingChanged?($0) })
+                        .frame(height: 38)
+                    Text("Click to edit · Press your shortcut · Esc to cancel")
+                        .font(.system(size: 12)).foregroundStyle(theme.muted)
                 }
-                if step == 0 { Text("Practice changes only the preview.").font(.system(size: 12)).foregroundStyle(.white.opacity(0.65)) }
+                VStack(spacing: 12) {
+                    Button("Try the toggle") { model.toggleSleep() }.buttonStyle(InkButton())
+                    Text(model.practiced ? "That’s it. Only the preview changed." : "Practice here without changing your Mac.")
+                        .font(.system(size: 12)).foregroundStyle(theme.accent)
+                }
+                Divider()
+                VStack(spacing: 12) {
+                    if model.authorizationReady {
+                        Label("Administrator access approved", systemImage: "checkmark.circle.fill")
+                            .font(.system(size: 14, weight: .medium)).foregroundStyle(theme.accent)
+                    } else {
+                        Button("Approve Once") { model.authorize?() }
+                            .buttonStyle(InkButton()).disabled(model.authorizationBusy)
+                        Text(model.authorizationStatus).font(.system(size: 13)).foregroundStyle(theme.accent).multilineTextAlignment(.center)
+                    }
+                    Text("Allows only the keep-awake on/off commands without a password. No password is stored. Remove access from the menu after restoring sleep.")
+                        .font(.system(size: 12)).foregroundStyle(theme.muted).multilineTextAlignment(.center)
+                }
             } else if step == 2 {
                 ZStack {
-                    RoundedRectangle(cornerRadius: 16).fill(model.lidClosed ? Color.black : sunset.opacity(0.22)).frame(height: 190)
+                    RoundedRectangle(cornerRadius: 16).fill(model.lidClosed ? Color.black : theme.wash.opacity(0.45)).frame(height: 190)
                     VStack(spacing: 12) {
                         Image(systemName: "laptopcomputer").font(.system(size: 64))
                         Text(model.lidClosed ? "Brightness 0% · still awake" : "Your brightness · restored").font(.system(size: 13, design: .monospaced))
-                    }.foregroundStyle(model.lidClosed ? .white.opacity(0.35) : .white)
+                    }.foregroundStyle(model.lidClosed ? .white.opacity(0.65) : theme.ink)
                 }
                 .animation(.easeInOut(duration: reduceMotion ? 0.14 : 0.42), value: model.lidClosed)
-                Button(model.lidClosed ? "Open the preview lid" : "Close the preview lid") { model.lidClosed.toggle() }.buttonStyle(TourButton())
-                Text("Simulation. Your actual display stays unchanged.").font(.system(size: 12)).foregroundStyle(.white.opacity(0.6))
+                Button(model.lidClosed ? "Open the preview lid" : "Close the preview lid") { model.lidClosed.toggle() }.buttonStyle(InkButton())
+                Text("Simulation. Your actual display stays unchanged.").font(.system(size: 12)).foregroundStyle(theme.muted)
             } else if step == 3 {
-                Image(systemName: "personalhotspot").font(.system(size: 65)).foregroundStyle(sunset)
+                Image(systemName: "personalhotspot").font(.system(size: 65)).foregroundStyle(theme.accent)
                 Text("One less dropped connection.").font(.system(size: 25, weight: .semibold, design: .rounded)).multilineTextAlignment(.center)
-                Button("Set Up My Hotspot") { model.setup?() }.buttonStyle(TourButton())
-                Text(model.setupStatus).font(.system(size: 14)).foregroundStyle(sunset).multilineTextAlignment(.center).accessibilityAddTraits(.updatesFrequently)
-                Text("Custom passwords are stored in Keychain. Setting one may also update macOS’s saved Wi-Fi password.").font(.system(size: 12)).foregroundStyle(.white.opacity(0.6)).multilineTextAlignment(.center)
+                Button("Set Up My Hotspot") { model.setup?() }.buttonStyle(InkButton())
+                Text(model.setupStatus).font(.system(size: 14)).foregroundStyle(theme.accent).multilineTextAlignment(.center).accessibilityAddTraits(.updatesFrequently)
+                Text("Custom passwords are stored in Keychain. Setting one may also update macOS’s saved Wi-Fi password.").font(.system(size: 12)).foregroundStyle(theme.muted).multilineTextAlignment(.center)
             } else {
                 HStack(spacing: 24) {
                     previewIcon(awake: false)
                     previewIcon(awake: true)
                 }
                 Text(model.actualBusy ? "Updating sleep setting…" : model.actualAwake.map { $0 ? "Mac stays awake" : "Mac sleeps normally" } ?? "Checking sleep setting…")
-                    .font(.system(size: 13)).foregroundStyle(sunset)
+                    .font(.system(size: 13)).foregroundStyle(theme.accent)
                 if !model.authorizationReady {
-                    Text(model.authorizationStatus).font(.system(size: 12)).foregroundStyle(.white.opacity(0.78)).multilineTextAlignment(.center)
+                    Text(model.authorizationStatus).font(.system(size: 12)).foregroundStyle(theme.muted).multilineTextAlignment(.center)
                 }
                 Text("Right here.\nWhenever you need it.").font(.system(size: 29, weight: .bold, design: .rounded)).multilineTextAlignment(.center)
                 if model.target == nil {
                     Text("Reveal the menu bar at the top of this screen to find Archaive. It may be hidden by your notch or menu bar manager.").font(.system(size: 14)).multilineTextAlignment(.center)
                     Button("Find the icon again") { model.locate?() }.buttonStyle(.plain)
                 }
-                Text("Replay any time from Welcome Tour in Archaive.").font(.system(size: 12)).foregroundStyle(.white.opacity(0.6))
+                Text("Replay any time from Welcome Tour in Archaive.").font(.system(size: 12)).foregroundStyle(theme.muted)
             }
         }.padding(28).frame(maxWidth: .infinity)
-            .background(.white.opacity(0.045), in: RoundedRectangle(cornerRadius: 28))
-            .overlay(RoundedRectangle(cornerRadius: 28).stroke(.white.opacity(0.12), lineWidth: 1))
+            .modifier(FogPanel())
     }
 
     private func previewIcon(awake: Bool) -> some View {
         Button { model.selectSleepMode(awake: awake) } label: {
-            Image(systemName: awake ? "sun.max.fill" : "moon.fill")
-                .foregroundStyle(awake ? sunset : .white)
-                .font(.system(size: 54)).frame(width: 72, height: 72)
+            ModeOrbit(awake: awake)
+                .stroke(theme.accent, style: StrokeStyle(lineWidth: 2, lineCap: .round))
+                .frame(width: 72, height: 72)
                 .opacity(model.actualAwake == awake ? 1 : 0.45)
                 .animation(.easeOut(duration: 0.15), value: model.actualAwake)
         }
@@ -371,38 +450,6 @@ private struct TourPage: View {
 
 }
 
-private struct MorphSleepIcon: View, Animatable {
-    var progress: Double
-    var animatableData: Double {
-        get { progress }
-        set { progress = newValue }
-    }
-    var body: some View {
-        Canvas { context, size in
-            let scale = min(size.width, size.height) / 18
-            context.translateBy(x: (size.width - 18 * scale) / 2, y: (size.height - 18 * scale) / 2)
-            context.scaleBy(x: scale, y: scale)
-            let radius = 6 - progress * 1.5
-            context.drawLayer { disc in
-                disc.fill(Path(ellipseIn: CGRect(x: 9 - radius, y: 9 - radius, width: radius * 2, height: radius * 2)), with: .foreground)
-                disc.blendMode = .destinationOut
-                let offset = 3 + progress * 10
-                disc.fill(Path(ellipseIn: CGRect(x: 9 + offset - 5.7, y: 7 - 5.7, width: 11.4, height: 11.4)), with: .color(.black))
-            }
-            let rays = max(0, (progress - 0.3) / 0.7)
-            if rays > 0 {
-                var path = Path()
-                for index in 0..<8 {
-                    let angle = Double(index) * .pi / 4 + (1 - progress) * .pi / 8
-                    path.move(to: CGPoint(x: 9 + cos(angle) * 6.2, y: 9 + sin(angle) * 6.2))
-                    path.addLine(to: CGPoint(x: 9 + cos(angle) * (6.2 + 1.5 * rays), y: 9 + sin(angle) * (6.2 + 1.5 * rays)))
-                }
-                context.stroke(path, with: .foreground, style: StrokeStyle(lineWidth: 1.4 * rays, lineCap: .round))
-            }
-        }
-    }
-}
-
 private struct TourIconButton: ButtonStyle {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     func makeBody(configuration: Configuration) -> some View {
@@ -413,52 +460,18 @@ private struct TourIconButton: ButtonStyle {
     }
 }
 
-private struct TourButton: ButtonStyle {
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    func makeBody(configuration: Configuration) -> some View {
-        configuration.label.font(.system(size: 14, weight: .semibold)).foregroundStyle(.black)
-            .padding(.horizontal, 22).padding(.vertical, 13)
-            .background(Color(red: 1, green: 0.72, blue: 0.52).opacity(configuration.isPressed ? 0.75 : 1), in: Capsule())
-            .scaleEffect(configuration.isPressed && !reduceMotion ? 0.97 : 1)
-            .animation(.easeOut(duration: 0.14), value: configuration.isPressed)
-    }
-}
-
-private struct MenuBarArrows: View {
+private struct MenuBarPointer: Shape {
     let target: CGPoint
 
-    var body: some View {
-        Canvas { context, size in
-            // Match the reference: a solid red shaft with a broad triangular head.
-            for index in 0..<12 {
-                let column = CGFloat(index % 6)
-                let row = CGFloat(index / 6)
-                let start = CGPoint(
-                    x: 30 + (column + row * 0.25) / 5.25 * max(0, size.width - 60),
-                    y: 100 + row * 85
-                )
-                let dx = target.x - start.x
-                let dy = target.y - start.y
-                let distance = hypot(dx, dy)
-                let length = min(160, distance - 30)
-                guard length > 35 else { continue }
-                let halfHeight = length * 0.178
-                let halfShaft = halfHeight * 0.45
-                let neck = length * 0.69
-                var arrow = Path()
-                arrow.move(to: CGPoint(x: 0, y: -halfShaft))
-                arrow.addLine(to: CGPoint(x: neck, y: -halfShaft))
-                arrow.addLine(to: CGPoint(x: neck, y: -halfHeight))
-                arrow.addLine(to: CGPoint(x: length, y: 0))
-                arrow.addLine(to: CGPoint(x: neck, y: halfHeight))
-                arrow.addLine(to: CGPoint(x: neck, y: halfShaft))
-                arrow.addLine(to: CGPoint(x: 0, y: halfShaft))
-                arrow.closeSubpath()
-                var drawing = context
-                drawing.translateBy(x: start.x, y: start.y)
-                drawing.rotate(by: .radians(atan2(dy, dx)))
-                drawing.fill(arrow, with: .color(Color(red: 1, green: 0.66, blue: 0.43)))
-            }
-        }
+    func path(in rect: CGRect) -> Path {
+        let tip = CGPoint(x: target.x, y: max(30, target.y + 16))
+        let direction: CGFloat = tip.x > rect.midX ? -1 : 1
+        var path = Path()
+        path.move(to: CGPoint(x: tip.x + 62 * direction, y: tip.y + 49))
+        path.addQuadCurve(to: tip, control: CGPoint(x: tip.x, y: tip.y + 44))
+        path.move(to: CGPoint(x: tip.x - 8, y: tip.y + 10))
+        path.addLine(to: tip)
+        path.addLine(to: CGPoint(x: tip.x + 8, y: tip.y + 10))
+        return path
     }
 }

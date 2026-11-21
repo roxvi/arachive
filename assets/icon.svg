@@ -1,4 +1,5 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
+<svg xmlns="http://www.w3.org/2000/svg" width="64" height="64" viewBox="0 0 64 64">
   <rect width="64" height="64" rx="14" fill="#059669"/>
-  <text x="32" y="32" dy="0.35em" text-anchor="middle" font-family="ui-sans-serif, system-ui, -apple-system, sans-serif" font-size="32" font-weight="600" fill="#ffffff">A</text>
+  <path fill="#fff" fill-rule="evenodd" d="M14 42c0-7 3-19 7-23 3-3 6-4 11-4 4 0 8 1 11 5 4 5 7 15 7 22 0 5-2 7-6 7-5 0-6-4-7-9H27c-1 5-3 9-7 9-5 0-6-3-6-7zm15-11h6c-1-4-1-6-3-6s-2 2-3 6z"/>
+  <path fill="none" stroke="#059669" stroke-linecap="round" stroke-width="1.25" d="M22 24c2-3 4-4 7-5"/>
 </svg>
