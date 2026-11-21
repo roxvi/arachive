@@ -91,7 +91,6 @@ struct Dashboard: View {
             footer
         }
         .frame(minWidth: 640, minHeight: 475)
-        .ignoresSafeArea(.container, edges: .top)
         .background {
             if let spread {
                 ThemeCanvas(theme: spread.previous, showsOutline: false)
@@ -100,6 +99,7 @@ struct Dashboard: View {
                 ThemeCanvas(theme: theme, showsOutline: false)
             }
         }
+        .ignoresSafeArea(.container, edges: .top)
         .coordinateSpace(name: "themeCanvas")
         .environment(\.appTheme, theme)
         .environment(\.colorScheme, .light)
