@@ -127,13 +127,13 @@ struct Dashboard: View {
                     .fixedSize(horizontal: false, vertical: true)
             }
             .frame(maxWidth: .infinity, alignment: .leading)
-            Spacer(minLength: 225)
+            Spacer(minLength: 150)
         }
         .padding(.horizontal, 30)
         .padding(.top, 28)
         .frame(maxWidth: 1080)
-        .frame(maxWidth: .infinity, minHeight: 211)
-        .overlay(alignment: .topTrailing) { modeNavigation }
+        .frame(maxWidth: .infinity, minHeight: 165)
+        .overlay(alignment: .topTrailing) { navigation }
     }
 
     private var pageSummary: String {
@@ -143,41 +143,25 @@ struct Dashboard: View {
         }
     }
 
-    private var modeNavigation: some View {
-        let awake = status.awake == true
-        return ZStack(alignment: .topTrailing) {
-            CornerCrescent()
-                .fill(theme.accent)
-                .opacity(awake ? 0 : 1)
-            CornerSun()
-                .stroke(theme.accent, style: StrokeStyle(lineWidth: 4, lineCap: .round))
-                .opacity(awake ? 1 : 0)
-        }
-        .frame(width: 246, height: 211)
-        .clipped()
-        .allowsHitTesting(false)
-        .accessibilityHidden(true)
-        .animation(reduceMotion ? nil : .easeInOut(duration: 0.34), value: awake)
-        .overlay(alignment: .topTrailing) {
-            VStack(spacing: 4) {
-                ForEach(DashboardPage.allCases) { page in
-                    Button {
-                        withAnimation(reduceMotion ? nil : .easeInOut(duration: 0.17)) { state.page = page }
-                    } label: {
-                        Label(page.rawValue, systemImage: page.symbol)
-                            .font(.system(size: 15, weight: state.page == page ? .bold : .medium))
-                            .frame(width: 132, height: 36)
-                            .background(state.page == page ? theme.wash.opacity(0.65) : .clear, in: Capsule())
-                            .contentShape(Capsule())
-                    }
-                    .buttonStyle(.plain)
-                    .accessibilityAddTraits(state.page == page ? .isSelected : [])
-                    .accessibilityValue(page == .power && focus.active ? "Focus active" : "")
+    private var navigation: some View {
+        VStack(spacing: 4) {
+            ForEach(DashboardPage.allCases) { page in
+                Button {
+                    withAnimation(reduceMotion ? nil : .easeInOut(duration: 0.17)) { state.page = page }
+                } label: {
+                    Label(page.rawValue, systemImage: page.symbol)
+                        .font(.system(size: 15, weight: state.page == page ? .bold : .medium))
+                        .frame(width: 132, height: 36)
+                        .background(state.page == page ? theme.wash.opacity(0.65) : .clear, in: Capsule())
+                        .contentShape(Capsule())
                 }
+                .buttonStyle(.plain)
+                .accessibilityAddTraits(state.page == page ? .isSelected : [])
+                .accessibilityValue(page == .power && focus.active ? "Focus active" : "")
             }
-            .padding(.top, 16)
-            .padding(.trailing, 12)
         }
+        .padding(.top, 24)
+        .padding(.trailing, 30)
     }
 
     private var footer: some View {
@@ -439,52 +423,5 @@ struct Dashboard: View {
             Text(title).font(.headline)
             Text(detail).foregroundStyle(theme.muted).fixedSize(horizontal: false, vertical: true)
         }
-    }
-}
-
-
-private struct CornerCrescent: Shape {
-    func path(in rect: CGRect) -> Path {
-        let top = CGPoint(x: rect.maxX - 207, y: rect.minY)
-        let tip = CGPoint(x: rect.maxX, y: rect.minY + 164)
-        let dx = tip.x - top.x
-        let dy = tip.y - top.y
-        let span = hypot(dx, dy)
-        let midpoint = CGPoint(x: (top.x + tip.x) / 2, y: (top.y + tip.y) / 2)
-
-        // Both circles pass through the same two tips. The larger circle cuts
-        // a shallower arc, leaving a distinct crescent around the navigation.
-        func arc(_ inset: CGFloat) -> (center: CGPoint, radius: CGFloat, sweep: Double) {
-            let center = CGPoint(x: midpoint.x + dy / span * inset,
-                                 y: midpoint.y - dx / span * inset)
-            return (center, hypot(span / 2, inset), Double(2 * atan2(span / 2, inset)))
-        }
-
-        let outer = arc(32)
-        let inner = arc(104)
-        var path = Path()
-        path.addRelativeArc(center: outer.center, radius: outer.radius,
-                            startAngle: .radians(Double(atan2(top.y - outer.center.y, top.x - outer.center.x))),
-                            delta: .radians(-outer.sweep))
-        path.addRelativeArc(center: inner.center, radius: inner.radius,
-                            startAngle: .radians(Double(atan2(tip.y - inner.center.y, tip.x - inner.center.x))),
-                            delta: .radians(inner.sweep))
-        path.closeSubpath()
-        return path
-    }
-}
-
-private struct CornerSun: Shape {
-    func path(in rect: CGRect) -> Path {
-        let center = CGPoint(x: rect.maxX, y: rect.minY)
-        let radius: CGFloat = 182
-        var path = Path()
-        path.addRelativeArc(center: center, radius: radius, startAngle: .degrees(88), delta: .degrees(94))
-        for degrees in stride(from: 90, through: 180, by: 22.5) {
-            let angle = degrees * .pi / 180
-            path.move(to: CGPoint(x: center.x + (radius + 12) * cos(angle), y: center.y + (radius + 12) * sin(angle)))
-            path.addLine(to: CGPoint(x: center.x + (radius + 26) * cos(angle), y: center.y + (radius + 26) * sin(angle)))
-        }
-        return path
     }
 }
