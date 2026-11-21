@@ -159,14 +159,14 @@ struct Dashboard: View {
         .accessibilityHidden(true)
         .animation(reduceMotion ? nil : .easeInOut(duration: 0.34), value: awake)
         .overlay(alignment: .topTrailing) {
-            VStack(spacing: 2) {
+            VStack(spacing: 4) {
                 ForEach(DashboardPage.allCases) { page in
                     Button {
                         withAnimation(reduceMotion ? nil : .easeInOut(duration: 0.17)) { state.page = page }
                     } label: {
                         Label(page.rawValue, systemImage: page.symbol)
-                            .font(.system(size: 12, weight: state.page == page ? .bold : .medium))
-                            .frame(width: 108, height: 27)
+                            .font(.system(size: 15, weight: state.page == page ? .bold : .medium))
+                            .frame(width: 132, height: 36)
                             .background(state.page == page ? theme.wash.opacity(0.65) : .clear, in: Capsule())
                             .contentShape(Capsule())
                     }
@@ -175,8 +175,8 @@ struct Dashboard: View {
                     .accessibilityValue(page == .power && focus.active ? "Focus active" : "")
                 }
             }
-            .padding(.top, 20)
-            .padding(.trailing, 15)
+            .padding(.top, 16)
+            .padding(.trailing, 12)
         }
     }
 
@@ -477,12 +477,13 @@ private struct CornerCrescent: Shape {
 private struct CornerSun: Shape {
     func path(in rect: CGRect) -> Path {
         let center = CGPoint(x: rect.maxX, y: rect.minY)
+        let radius: CGFloat = 182
         var path = Path()
-        path.addRelativeArc(center: center, radius: 174, startAngle: .degrees(88), delta: .degrees(94))
+        path.addRelativeArc(center: center, radius: radius, startAngle: .degrees(88), delta: .degrees(94))
         for degrees in stride(from: 90, through: 180, by: 22.5) {
             let angle = degrees * .pi / 180
-            path.move(to: CGPoint(x: center.x + 188 * cos(angle), y: center.y + 188 * sin(angle)))
-            path.addLine(to: CGPoint(x: center.x + 204 * cos(angle), y: center.y + 204 * sin(angle)))
+            path.move(to: CGPoint(x: center.x + (radius + 12) * cos(angle), y: center.y + (radius + 12) * sin(angle)))
+            path.addLine(to: CGPoint(x: center.x + (radius + 26) * cos(angle), y: center.y + (radius + 26) * sin(angle)))
         }
         return path
     }
