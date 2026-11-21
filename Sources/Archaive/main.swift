@@ -123,7 +123,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSWind
                 toggleHotspot: { [weak self] in self?.toggleHotspot() },
                 configureShare: { [weak self] in self?.showPhoneShare() },
                 stopShare: { [weak self] in self?.stopPhoneShare() },
-                replayTour: { [weak self] in self?.replayOnboarding() }
+                replayTour: { [weak self] in self?.replayOnboarding() },
+                captureThemeFrame: { [weak self] in self?.dashboardWindow?.captureThemeFrame() }
             )
             let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 860, height: 670),
                                   styleMask: [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView],

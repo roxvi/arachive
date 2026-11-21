@@ -48,6 +48,7 @@ struct DashboardActions {
     let configureShare: () -> Void
     let stopShare: () -> Void
     let replayTour: () -> Void
+    let captureThemeFrame: () -> NSImage?
 }
 
 struct Dashboard: View {
@@ -59,14 +60,7 @@ struct Dashboard: View {
 
     @AppStorage(AppTheme.storageKey) private var theme = AppTheme.defaultTheme
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    @State private var spread: Spread?
-    @State private var spreadProgress: CGFloat = 0
-    @State private var spreadTask: Task<Void, Never>?
-
-    private struct Spread {
-        let previous: AppTheme
-        let origin: CGPoint
-    }
+    @State private var spread: ThemeInkTransition?
 
     private var status: DashboardState.Status { state.status }
 
@@ -91,24 +85,13 @@ struct Dashboard: View {
             footer
         }
         .frame(minWidth: 640, minHeight: 475)
-        .background {
-            if let spread {
-                ThemeCanvas(theme: spread.previous, showsOutline: false)
-                ThemeCanvas(theme: theme, showsOutline: false).clipShape(InkSpread(progress: spreadProgress, origin: spread.origin))
-            } else {
-                ThemeCanvas(theme: theme, showsOutline: false)
-            }
-        }
+        .background { ThemeCanvas(theme: theme, showsOutline: false) }
+        .themeInkTransition($spread)
         .ignoresSafeArea(.container, edges: .top)
-        .coordinateSpace(name: "themeCanvas")
         .environment(\.appTheme, theme)
         .environment(\.colorScheme, .light)
         .foregroundStyle(theme.ink)
         .tint(theme.accent)
-        .onDisappear {
-            spreadTask?.cancel()
-            spread = nil
-        }
     }
 
     private var header: some View {
@@ -169,26 +152,23 @@ struct Dashboard: View {
             HStack(spacing: 8) {
                 Text("Theme").font(.callout.weight(.semibold)).foregroundStyle(theme.muted).fixedSize()
                 ForEach(AppTheme.allCases) { option in
-                    GeometryReader { proxy in
-                        Button {
-                            let frame = proxy.frame(in: .named("themeCanvas"))
-                            selectTheme(option, at: CGPoint(x: frame.minX + 14, y: frame.midY))
-                        } label: {
-                            HStack(spacing: 6) {
-                                ThemeSwatch(theme: option, selected: option == theme)
-                                    .frame(width: 17, height: 17)
-                                Text(option.name).font(.system(size: 12, weight: .medium)).fixedSize()
-                            }
-                            .padding(.horizontal, 6)
-                            .frame(height: 31)
-                            .contentShape(Rectangle())
+                    Button {
+                        selectTheme(option)
+                    } label: {
+                        HStack(spacing: 6) {
+                            ThemeSwatch(theme: option, selected: option == theme)
+                                .frame(width: 17, height: 17)
+                                .anchorPreference(key: ThemeSwatchAnchors.self, value: .bounds) { [option: $0] }
+                            Text(option.name).font(.system(size: 12, weight: .medium)).fixedSize()
                         }
-                        .buttonStyle(.plain)
-                        .help(option.name)
-                        .accessibilityLabel(option.name)
-                        .accessibilityAddTraits(option == theme ? .isSelected : [])
+                        .padding(.horizontal, 6)
+                        .frame(height: 31)
+                        .contentShape(Rectangle())
                     }
-                    .frame(width: option == .monochrome ? 108 : option == .sunset ? 73 : 58, height: 31)
+                    .buttonStyle(.plain)
+                    .help(option.name)
+                    .accessibilityLabel(option.name)
+                    .accessibilityAddTraits(option == theme ? .isSelected : [])
                 }
             }
             Spacer()
@@ -201,26 +181,15 @@ struct Dashboard: View {
         .overlay(alignment: .top) { Rectangle().fill(theme.line).frame(height: 1) }
     }
 
-    private func selectTheme(_ selection: AppTheme, at origin: CGPoint) {
+    private func selectTheme(_ selection: AppTheme) {
         guard theme != selection else { return }
-        spreadTask?.cancel()
-        guard !reduceMotion else {
+        guard !reduceMotion, let frame = actions.captureThemeFrame() else {
             theme = selection
             spread = nil
             return
         }
-        spread = Spread(previous: theme, origin: origin)
-        spreadProgress = 0
-        withAnimation(.easeInOut(duration: 0.55)) { theme = selection }
-        spreadTask = Task { @MainActor in
-            // Commit the collapsed mask before its expansion.
-            try? await Task.sleep(nanoseconds: 25_000_000)
-            guard !Task.isCancelled else { return }
-            withAnimation(.timingCurve(0.24, 0.6, 0.27, 1, duration: 0.71)) { spreadProgress = 1 }
-            try? await Task.sleep(nanoseconds: 750_000_000)
-            guard !Task.isCancelled else { return }
-            spread = nil
-        }
+        spread = ThemeInkTransition(previousFrame: frame, destination: selection)
+        theme = selection
     }
 
     private var focusSettings: some View {

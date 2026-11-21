@@ -193,21 +193,107 @@ struct ThemeSwatch: View {
     }
 }
 
-// Slightly different radii on each lobe keep the advancing edge uneven.
-struct InkSpread: Shape {
-    var progress: CGFloat
+struct ThemeSwatchAnchors: PreferenceKey {
+    static let defaultValue: [AppTheme: Anchor<CGRect>] = [:]
+
+    static func reduce(value: inout [AppTheme: Anchor<CGRect>], nextValue: () -> [AppTheme: Anchor<CGRect>]) {
+        value.merge(nextValue(), uniquingKeysWith: { _, next in next })
+    }
+}
+
+struct ThemeInkTransition {
+    let previousFrame: NSImage
+    let destination: AppTheme
+    let started = Date()
+}
+
+extension NSWindow {
+    func captureThemeFrame() -> NSImage? {
+        guard let contentView, !contentView.bounds.isEmpty,
+              let bitmap = contentView.bitmapImageRepForCachingDisplay(in: contentView.bounds) else { return nil }
+        contentView.cacheDisplay(in: contentView.bounds, to: bitmap)
+        let frame = NSImage(size: contentView.bounds.size)
+        frame.addRepresentation(bitmap)
+        return frame
+    }
+}
+
+extension View {
+    func themeInkTransition(_ transition: Binding<ThemeInkTransition?>) -> some View {
+        modifier(ThemeInkTransitionModifier(transition: transition))
+    }
+}
+
+private struct ThemeInkTransitionModifier: ViewModifier {
+    @Binding var transition: ThemeInkTransition?
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    func body(content: Content) -> some View {
+        content
+            .overlayPreferenceValue(ThemeSwatchAnchors.self) { anchors in
+                GeometryReader { geometry in
+                    if let transition, let anchor = anchors[transition.destination], !reduceMotion {
+                        let swatch = geometry[anchor]
+                        ThemeInkReveal(previousFrame: transition.previousFrame, destination: transition.destination,
+                                       started: transition.started, origin: CGPoint(x: swatch.midX, y: swatch.midY))
+                    }
+                }
+                .allowsHitTesting(false)
+                .accessibilityHidden(true)
+            }
+            .task(id: transition?.started) {
+                guard transition != nil else { return }
+                try? await Task.sleep(nanoseconds: ThemeInkReveal.durationNanoseconds)
+                guard !Task.isCancelled else { return }
+                transition = nil
+            }
+            .onDisappear { transition = nil }
+    }
+}
+
+struct ThemeInkReveal: View {
+    private static let duration: TimeInterval = 1.05
+    static let durationNanoseconds = UInt64(duration * 1_000_000_000)
+
+    let previousFrame: NSImage
+    let destination: AppTheme
+    let started: Date
     let origin: CGPoint
 
-    var animatableData: CGFloat {
-        get { progress }
-        set { progress = newValue }
+    var body: some View {
+        TimelineView(.animation) { frame in
+            let elapsed = min(1, max(0, frame.date.timeIntervalSince(started) / Self.duration))
+            let progress = CGFloat(1 - pow(1 - elapsed, 1.25))
+            let front = InkSpread(progress: progress, origin: origin)
+            ZStack {
+                front.stroke(destination.accent.opacity(0.18 * min(1, progress * 15)), lineWidth: 18)
+                Image(nsImage: previousFrame)
+                    .resizable()
+                    .mask {
+                        Rectangle().overlay {
+                            front.fill(.black).blendMode(.destinationOut)
+                        }
+                        .compositingGroup()
+                    }
+            }
+            .clipped()
+        }
+        .accessibilityHidden(true)
+        .allowsHitTesting(false)
+        .transaction { $0.animation = nil }
     }
+}
+
+// Slightly different radii on each lobe keep the advancing edge uneven.
+private struct InkSpread: Shape {
+    let progress: CGFloat
+    let origin: CGPoint
 
     func path(in rect: CGRect) -> Path {
         let reach = hypot(max(origin.x, rect.width - origin.x),
-                          max(origin.y, rect.height - origin.y)) * 1.2
-        let radius = reach * max(0, progress)
-        let lobes: [CGFloat] = [1.05, 0.94, 1.10, 0.96, 1.06, 0.92, 1.07, 0.98, 1.12, 0.95, 1.03]
+                          max(origin.y, rect.height - origin.y)) * 1.25
+        let radius = reach * progress
+        let lobes: [CGFloat] = [1.07, 0.92, 1.10, 0.96, 1.06, 0.92, 1.07, 0.97, 1.12, 0.93, 1.03]
         let points = lobes.enumerated().map { index, lobe in
             let angle = Double(index) * 2 * .pi / Double(lobes.count)
             return CGPoint(x: origin.x + cos(angle) * radius * lobe,
@@ -222,60 +308,6 @@ struct InkSpread: Shape {
             path.addQuadCurve(to: midpoint(point, points[(index + 1) % points.count]), control: point)
         }
         path.closeSubpath()
-        return path
-    }
-}
-
-/// Four curves morph the crescent into the sun's outline around the sleep control.
-struct ModeOrbit: Shape {
-    var progress: CGFloat
-
-    init(awake: Bool) { progress = awake ? 1 : 0 }
-
-    var animatableData: CGFloat {
-        get { progress }
-        set { progress = newValue }
-    }
-
-    private static let moon: [CGPoint] = [
-        CGPoint(x: 76, y: 8),
-        CGPoint(x: 30, y: -3), CGPoint(x: 11, y: 25), CGPoint(x: 11, y: 50),
-        CGPoint(x: 11, y: 75), CGPoint(x: 30, y: 103), CGPoint(x: 76, y: 92),
-        CGPoint(x: 50, y: 88), CGPoint(x: 32, y: 71), CGPoint(x: 32, y: 50),
-        CGPoint(x: 32, y: 29), CGPoint(x: 50, y: 12), CGPoint(x: 76, y: 8)
-    ]
-
-    private static let sun: [CGPoint] = [
-        CGPoint(x: 50, y: 12),
-        CGPoint(x: 29, y: 12), CGPoint(x: 12, y: 29), CGPoint(x: 12, y: 50),
-        CGPoint(x: 12, y: 71), CGPoint(x: 29, y: 88), CGPoint(x: 50, y: 88),
-        CGPoint(x: 71, y: 88), CGPoint(x: 88, y: 71), CGPoint(x: 88, y: 50),
-        CGPoint(x: 88, y: 29), CGPoint(x: 71, y: 12), CGPoint(x: 50, y: 12)
-    ]
-
-    func path(in rect: CGRect) -> Path {
-        let unit = min(rect.width, rect.height) / 100
-        func point(_ x: CGFloat, _ y: CGFloat) -> CGPoint {
-            CGPoint(x: rect.midX + (x - 50) * unit, y: rect.midY + (y - 50) * unit)
-        }
-        let points = zip(Self.moon, Self.sun).map { moon, sun in
-            point(moon.x + (sun.x - moon.x) * progress, moon.y + (sun.y - moon.y) * progress)
-        }
-        var path = Path()
-        path.move(to: points[0])
-        for index in stride(from: 1, to: points.count, by: 3) {
-            path.addCurve(to: points[index + 2], control1: points[index], control2: points[index + 1])
-        }
-        path.closeSubpath()
-
-        let rayLength = 6 * max(0, (progress - 0.52) / 0.48)
-        if rayLength > 0 {
-            for index in 0..<8 {
-                let angle = Double(index) * .pi / 4
-                path.move(to: point(50 + 43 * cos(angle), 50 + 43 * sin(angle)))
-                path.addLine(to: point(50 + (43 + rayLength) * cos(angle), 50 + (43 + rayLength) * sin(angle)))
-            }
-        }
         return path
     }
 }

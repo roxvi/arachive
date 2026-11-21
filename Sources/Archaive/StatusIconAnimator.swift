@@ -40,11 +40,11 @@ final class StatusIconAnimator {
         RunLoop.main.add(timer, forMode: .common)
     }
 
-    private static func image(progress: CGFloat, description: String) -> NSImage {
-        let image = NSImage(size: NSSize(width: imageSize, height: imageSize), flipped: false) { _ in
+    static func image(progress: CGFloat, description: String, size: CGFloat = imageSize) -> NSImage {
+        let image = NSImage(size: NSSize(width: size, height: size), flipped: false) { _ in
             NSGraphicsContext.saveGraphicsState()
             defer { NSGraphicsContext.restoreGraphicsState() }
-            let scale = imageSize / 18
+            let scale = size / 18
             NSGraphicsContext.current?.cgContext.scaleBy(x: scale, y: scale)
 
             NSColor.black.setFill()

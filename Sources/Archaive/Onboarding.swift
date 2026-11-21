@@ -84,7 +84,9 @@ final class OnboardingController {
             self.setup?()
         }
         model.locate = { [weak self] in self?.locateIcon() }
-        panel.contentView = NSHostingView(rootView: OnboardingView(model: model))
+        panel.contentView = NSHostingView(rootView: OnboardingView(model: model, captureThemeFrame: { [weak panel] in
+            panel?.captureThemeFrame()
+        }))
         window = panel
         escaping = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
             guard let self, self.window?.isKeyWindow == true else { return event }
@@ -157,9 +159,11 @@ final class OnboardingController {
 
 private struct OnboardingView: View {
     @ObservedObject var model: OnboardingModel
+    let captureThemeFrame: () -> NSImage?
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @AppStorage(AppTheme.storageKey) private var themeID = ""
     @State private var logoRevealed = false
+    @State private var inkTransition: ThemeInkTransition?
 
     private var theme: AppTheme { AppTheme(rawValue: themeID) ?? .defaultTheme }
 
@@ -200,6 +204,7 @@ private struct OnboardingView: View {
                 .padding(.top, 42)
                 .padding(.bottom, 25)
             }
+            .themeInkTransition($inkTransition)
             .foregroundStyle(theme.ink)
             .environment(\.appTheme, theme)
             .environment(\.colorScheme, .light)
@@ -267,10 +272,16 @@ private struct OnboardingView: View {
     private func themeChoice(_ option: AppTheme) -> some View {
         let selected = themeID == option.rawValue
         return Button {
-            withAnimation(reduceMotion ? nil : .easeInOut(duration: 0.32)) { themeID = option.rawValue }
+            guard !selected else { return }
+            if option != theme, !reduceMotion, let previousFrame = captureThemeFrame() {
+                inkTransition = ThemeInkTransition(previousFrame: previousFrame, destination: option)
+            }
+            themeID = option.rawValue
         } label: {
             HStack(spacing: 8) {
-                ThemeSwatch(theme: option, selected: selected).frame(width: 22, height: 22)
+                ThemeSwatch(theme: option, selected: selected)
+                    .frame(width: 22, height: 22)
+                    .anchorPreference(key: ThemeSwatchAnchors.self, value: .bounds) { [option: $0] }
                 Text(option.name).font(.system(size: 13, weight: .semibold))
                     .fixedSize(horizontal: true, vertical: false)
             }
@@ -291,7 +302,7 @@ private struct OnboardingView: View {
 
     private var bottomRail: some View {
         HStack {
-            Button("Back") { model.move(-1) }
+            Button("Back") { move(-1) }
                 .buttonStyle(InkButton(prominent: false))
                 .disabled(model.step == 0)
             Spacer()
@@ -307,12 +318,17 @@ private struct OnboardingView: View {
             Spacer()
             Button(model.step == 4 ? "Finish" : "Continue") {
                 if model.step == 4 { model.finish?() }
-                else { model.move(1) }
+                else { move(1) }
             }
             .buttonStyle(InkButton())
             .disabled(model.step == 0 && AppTheme(rawValue: themeID) == nil)
             .keyboardShortcut(.defaultAction)
         }
+    }
+
+    private func move(_ delta: Int) {
+        inkTransition = nil
+        model.move(delta)
     }
 }
 
@@ -359,9 +375,7 @@ private struct TourPage: View {
     @ViewBuilder private var stage: some View {
         VStack(spacing: step == 1 ? 20 : 24) {
             if step == 1 {
-                ModeOrbit(awake: model.awake)
-                    .stroke(theme.accent, style: StrokeStyle(lineWidth: 2, lineCap: .round))
-                    .frame(width: 90, height: 80)
+                TourSleepSymbol(progress: model.awake ? 1 : 0)
                     .animation(reduceMotion ? nil : .easeInOut(duration: 0.45), value: model.awake)
                     .accessibilityLabel(model.awake ? "Keep awake on" : "Keep awake off")
                 Text(model.awake ? "Mac stays awake" : "Mac sleeps normally").font(.system(size: 24, weight: .semibold, design: .rounded))
@@ -434,9 +448,7 @@ private struct TourPage: View {
 
     private func previewIcon(awake: Bool) -> some View {
         Button { model.selectSleepMode(awake: awake) } label: {
-            ModeOrbit(awake: awake)
-                .stroke(theme.accent, style: StrokeStyle(lineWidth: 2, lineCap: .round))
-                .frame(width: 72, height: 72)
+            TourSleepSymbol(progress: awake ? 1 : 0)
                 .opacity(model.actualAwake == awake ? 1 : 0.45)
                 .animation(.easeOut(duration: 0.15), value: model.actualAwake)
         }
@@ -448,6 +460,23 @@ private struct TourPage: View {
         .help("Select this Mac’s sleep mode.")
     }
 
+}
+
+private struct TourSleepSymbol: View, Animatable {
+    var progress: CGFloat
+    @Environment(\.appTheme) private var theme
+
+    var animatableData: CGFloat {
+        get { progress }
+        set { progress = newValue }
+    }
+
+    var body: some View {
+        Image(nsImage: StatusIconAnimator.image(progress: progress, description: "", size: 72))
+            .renderingMode(.template)
+            .foregroundStyle(theme.accent)
+            .frame(width: 72, height: 72)
+    }
 }
 
 private struct TourIconButton: ButtonStyle {
