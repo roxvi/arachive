@@ -147,8 +147,7 @@ struct Dashboard: View {
         let awake = status.awake == true
         return ZStack(alignment: .topTrailing) {
             CornerCrescent()
-                .fill(.linearGradient(colors: [theme.accent, theme.accent.opacity(0.74)],
-                                      startPoint: .topLeading, endPoint: .bottomTrailing))
+                .fill(theme.accent)
                 .opacity(awake ? 0 : 1)
             CornerSun()
                 .stroke(theme.accent, style: StrokeStyle(lineWidth: 4, lineCap: .round))
@@ -446,15 +445,30 @@ struct Dashboard: View {
 
 private struct CornerCrescent: Shape {
     func path(in rect: CGRect) -> Path {
-        let edge = rect.maxX
-        let top = CGPoint(x: edge - 218, y: -2)
-        let tip = CGPoint(x: edge + 2, y: 171)
+        let top = CGPoint(x: rect.maxX - 207, y: rect.minY)
+        let tip = CGPoint(x: rect.maxX, y: rect.minY + 164)
+        let dx = tip.x - top.x
+        let dy = tip.y - top.y
+        let span = hypot(dx, dy)
+        let midpoint = CGPoint(x: (top.x + tip.x) / 2, y: (top.y + tip.y) / 2)
+
+        // Both circles pass through the same two tips. The larger circle cuts
+        // a shallower arc, leaving a distinct crescent around the navigation.
+        func arc(_ inset: CGFloat) -> (center: CGPoint, radius: CGFloat, sweep: Double) {
+            let center = CGPoint(x: midpoint.x + dy / span * inset,
+                                 y: midpoint.y - dx / span * inset)
+            return (center, hypot(span / 2, inset), Double(2 * atan2(span / 2, inset)))
+        }
+
+        let outer = arc(32)
+        let inner = arc(104)
         var path = Path()
-        path.move(to: top)
-        path.addCurve(to: tip, control1: CGPoint(x: edge - 250, y: 123),
-                      control2: CGPoint(x: edge - 110, y: 205))
-        path.addCurve(to: top, control1: CGPoint(x: edge - 124, y: 153),
-                      control2: CGPoint(x: edge - 202, y: 88))
+        path.addRelativeArc(center: outer.center, radius: outer.radius,
+                            startAngle: .radians(Double(atan2(top.y - outer.center.y, top.x - outer.center.x))),
+                            delta: .radians(-outer.sweep))
+        path.addRelativeArc(center: inner.center, radius: inner.radius,
+                            startAngle: .radians(Double(atan2(tip.y - inner.center.y, tip.x - inner.center.x))),
+                            delta: .radians(inner.sweep))
         path.closeSubpath()
         return path
     }
