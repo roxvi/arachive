@@ -17,6 +17,7 @@ struct PhoneView: View {
     @State private var cameraError: String?
     @State private var resetZoom = UUID()
     @State private var mode = ViewerMode.view
+    @State private var isFullscreen = false
     @State private var showKeyboard = false
     @FocusState private var linkFocused: Bool
 
@@ -30,6 +31,8 @@ struct PhoneView: View {
             .background { theme.paper.ignoresSafeArea() }
             .toolbar(.hidden, for: .navigationBar)
         }
+        .statusBarHidden(isFullscreen)
+        .persistentSystemOverlays(isFullscreen ? .hidden : .automatic)
         .tint(theme.accent)
         .environment(\.appTheme, theme)
         .preferredColorScheme(.light)
@@ -49,6 +52,10 @@ struct PhoneView: View {
         }
         .onChange(of: session.image != nil) { _, live in
             UIApplication.shared.isIdleTimerDisabled = live && phase == .active
+            if !live { isFullscreen = false }
+        }
+        .onChange(of: session.controlError) { _, error in
+            if error != nil { isFullscreen = false }
         }
         .onChange(of: session.canControl) { _, available in
             if !available {
@@ -170,36 +177,7 @@ struct PhoneView: View {
 
     private var viewer: some View {
         VStack(spacing: 0) {
-            HStack(spacing: 8) {
-                Button {
-                    session.disconnect()
-                    mode = .view
-                } label: {
-                    Image(systemName: "xmark").frame(minWidth: 20)
-                }
-                .buttonStyle(PhoneInkButton(prominent: false))
-                .accessibilityLabel("Disconnect")
-                if verticalSize == .compact {
-                    Wordmark(width: 104).foregroundStyle(theme.accent)
-                } else {
-                    Text("Mac screen")
-                        .font(.system(.headline, design: .rounded))
-                        .accessibilityAddTraits(.isHeader)
-                }
-                Spacer()
-                if verticalSize == .compact, session.canControl { modePicker.frame(width: 146) }
-                if mode == .control && session.canControl { keyboardButton }
-                Button {
-                    resetZoom = UUID()
-                } label: {
-                    Image(systemName: "arrow.up.left.and.arrow.down.right").frame(minWidth: 20)
-                }
-                .buttonStyle(PhoneInkButton(prominent: false))
-                .accessibilityLabel("Fit screen")
-                .disabled(session.image == nil)
-            }
-            .padding(.horizontal, 12)
-            .padding(.vertical, verticalSize == .compact ? 3 : 8)
+            if !isFullscreen { viewerToolbar }
 
             ZStack {
                 Color(red: 0.08, green: 0.06, blue: 0.08)
@@ -213,11 +191,69 @@ struct PhoneView: View {
                 }
             }
             .clipped()
+            .ignoresSafeArea(.container, edges: isFullscreen ? .all : [])
 
-            if verticalSize != .compact || session.controlError != nil || session.image == nil {
+            if !isFullscreen && (verticalSize != .compact || session.controlError != nil || session.image == nil) {
                 viewerFooter
             }
         }
+        .overlay(alignment: .topTrailing) {
+            if isFullscreen {
+                Button {
+                    isFullscreen = false
+                } label: {
+                    Image(systemName: "arrow.down.right.and.arrow.up.left")
+                        .font(.subheadline.weight(.semibold))
+                        .foregroundStyle(.white)
+                        .frame(width: 44, height: 44)
+                        .background(.black.opacity(0.72), in: Circle())
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("Exit fullscreen")
+                .padding(10)
+            }
+        }
+    }
+
+    private var viewerToolbar: some View {
+        HStack(spacing: 8) {
+            Button {
+                session.disconnect()
+                mode = .view
+            } label: {
+                Image(systemName: "xmark").frame(minWidth: 20)
+            }
+            .buttonStyle(PhoneInkButton(prominent: false))
+            .accessibilityLabel("Disconnect")
+            if verticalSize == .compact {
+                Wordmark(width: 104).foregroundStyle(theme.accent)
+            } else {
+                Text("Mac screen")
+                    .font(.system(.headline, design: .rounded))
+                    .accessibilityAddTraits(.isHeader)
+            }
+            Spacer()
+            if verticalSize == .compact, session.canControl { modePicker.frame(width: 146) }
+            if mode == .control && session.canControl { keyboardButton }
+            Button {
+                resetZoom = UUID()
+            } label: {
+                Image(systemName: "aspectratio").frame(minWidth: 20)
+            }
+            .buttonStyle(PhoneInkButton(prominent: false))
+            .accessibilityLabel("Fit screen")
+            .disabled(session.image == nil)
+            Button {
+                isFullscreen = true
+            } label: {
+                Image(systemName: "arrow.up.left.and.arrow.down.right").frame(minWidth: 20)
+            }
+            .buttonStyle(PhoneInkButton(prominent: false))
+            .accessibilityLabel("Enter fullscreen")
+            .disabled(session.image == nil)
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, verticalSize == .compact ? 3 : 8)
     }
 
     private var viewerFooter: some View {

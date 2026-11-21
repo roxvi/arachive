@@ -17,6 +17,7 @@ On the Mac, open **Connections → Open Sharing**. To enable mouse and keyboard 
 On iPhone, tap **Scan QR Code** and scan the code in the Mac’s sharing window. Approve Camera and Local Network access when prompted. **Copy View Link** on the Mac gives you a link you can paste into the iPhone app or open in a browser for viewing. To pair for control, scan the control QR directly in Archaive. If you close the setup window, restart sharing to show a fresh control QR code.
 
 - **View** lets you pinch to zoom and drag to pan. **Fit** resets the zoom.
+- Tap the fullscreen button to hide the viewer toolbar. The current View or Control mode stays active. Tap the arrows in the top-right corner to exit fullscreen.
 - **Control** lets you tap or double-tap to click, touch and hold to right-click, drag with one finger, and scroll with two. To zoom in on a small target, zoom in View first, then switch to Control.
 - In Control, tap the keyboard button to send text and use Mac keys or shortcuts. The Mac applies keyboard input to the focused app.
 - **Disconnect** leaves the viewer. **Stop Phone Sharing** on the Mac ends the session and revokes control. Backgrounding Archaive hides the image and pauses the connection. Locking the Mac ends the session.
