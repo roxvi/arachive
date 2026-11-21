@@ -14,18 +14,27 @@ final class PhoneShare: NSObject, SCStreamOutput, SCStreamDelegate, @unchecked S
     private var clients: [UUID: NWConnection] = [:]
     private var capturing: ObjectIdentifier?
     private var networkSession: UUID?
+    private var controller: PhoneControl.Receiver?
+    private var input: PhoneInput?
     private var frame: Data?
     private var frameTime = Date.distantPast
     private var session: UUID?
     private(set) var active = false
     private(set) var starting = false
     private(set) var links: [String] = []
+    private(set) var pairingLink: String?
+    private(set) var allowsControl = false
     var changed: (() -> Void)?
     var failed: ((String) -> Void)?
 
-    func start() {
+    func start(allowControl: Bool, pairingWindowID: CGWindowID?) {
         dispatchPrecondition(condition: .onQueue(.main))
         guard !active, !starting else { return }
+        if allowControl && !CGPreflightPostEventAccess() && !CGRequestPostEventAccess() {
+            failed?("Allow Archaive in System Settings → Privacy & Security → Accessibility, then start sharing again.")
+            return
+        }
+        allowsControl = allowControl
         starting = true
         let id = UUID()
         session = id
@@ -37,6 +46,14 @@ final class PhoneShare: NSObject, SCStreamOutput, SCStreamDelegate, @unchecked S
                 guard let display = content.displays.first(where: { $0.displayID == CGMainDisplayID() }) ?? content.displays.first else {
                     throw ShareError.noDisplay
                 }
+                var privateWindows: [SCWindow] = []
+                if allowControl {
+                    guard let pairingWindowID,
+                          let pairingWindow = content.windows.first(where: { $0.windowID == pairingWindowID }) else {
+                        throw ShareError.noPairingWindow
+                    }
+                    privateWindows.append(pairingWindow)
+                }
                 let config = SCStreamConfiguration()
                 let scale = min(1, 1280.0 / Double(display.width))
                 config.width = max(2, Int(Double(display.width) * scale) / 2 * 2)
@@ -45,7 +62,7 @@ final class PhoneShare: NSObject, SCStreamOutput, SCStreamDelegate, @unchecked S
                 config.queueDepth = 3
                 config.pixelFormat = kCVPixelFormatType_32BGRA
                 config.showsCursor = true
-                let capture = SCStream(filter: SCContentFilter(display: display, excludingWindows: []), configuration: config, delegate: self)
+                let capture = SCStream(filter: SCContentFilter(display: display, excludingWindows: privateWindows), configuration: config, delegate: self)
                 try capture.addStreamOutput(self, type: .screen, sampleHandlerQueue: queue)
                 stream = capture
                 let captureID = ObjectIdentifier(capture)
@@ -55,7 +72,15 @@ final class PhoneShare: NSObject, SCStreamOutput, SCStreamDelegate, @unchecked S
                 let server = try NWListener(using: .tcp, on: .any)
                 let token = UUID().uuidString.replacingOccurrences(of: "-", with: "")
                 listener = server
-                queue.async { self.networkSession = id }
+                let controlKey = allowControl ? PhoneControl.PairingKey() : nil
+                let displayID = display.displayID
+                queue.async { [self] in
+                    networkSession = id
+                    if let controlKey {
+                        controller = PhoneControl.Receiver(key: controlKey)
+                        input = PhoneInput(display: displayID, queue: queue)
+                    }
+                }
                 server.newConnectionHandler = { [weak self] connection in
                     guard let self, self.networkSession == id else { connection.cancel(); return }
                     self.accept(connection, token: token)
@@ -67,6 +92,10 @@ final class PhoneShare: NSObject, SCStreamOutput, SCStreamDelegate, @unchecked S
                         case .ready:
                             guard let port = server.port else { return }
                             self.links = Self.addresses().map { "http://\($0):\(port.rawValue)/\(token)/" }
+                            self.pairingLink = self.links.first.map { link in
+                                guard let controlKey else { return link }
+                                return "archaive-control" + link.dropFirst(4) + "#" + controlKey.code
+                            }
                             self.starting = false
                             self.active = true
                             self.changed?()
@@ -78,7 +107,8 @@ final class PhoneShare: NSObject, SCStreamOutput, SCStreamDelegate, @unchecked S
                 server.start(queue: queue)
             } catch {
                 guard session == id else { return }
-                fail("Allow Screen Recording in System Settings → Privacy & Security, then retry. \(error.localizedDescription)")
+                if let shareError = error as? ShareError { fail(shareError.localizedDescription) }
+                else { fail("Allow Screen Recording in System Settings → Privacy & Security, then retry. \(error.localizedDescription)") }
             }
         }
     }
@@ -90,7 +120,10 @@ final class PhoneShare: NSObject, SCStreamOutput, SCStreamDelegate, @unchecked S
         stream = nil
         listener?.cancel()
         listener = nil
-        queue.async { [self] in
+        queue.sync { [self] in
+            input?.releaseDrag()
+            input = nil
+            controller = nil
             capturing = nil
             networkSession = nil
             for connection in clients.values { connection.cancel() }
@@ -102,6 +135,8 @@ final class PhoneShare: NSObject, SCStreamOutput, SCStreamDelegate, @unchecked S
         starting = false
         active = false
         links = []
+        pairingLink = nil
+        allowsControl = false
         changed?()
     }
 
@@ -152,18 +187,28 @@ final class PhoneShare: NSObject, SCStreamOutput, SCStreamDelegate, @unchecked S
 
     private func receive(_ connection: NWConnection, token: String, data: Data) {
         connection.receive(minimumIncompleteLength: 1, maximumLength: 4096) { [weak self] bytes, _, done, error in
-            guard let self else { connection.cancel(); return }
+            guard let self, self.networkSession != nil else { connection.cancel(); return }
             var request = data
             request.append(bytes ?? Data())
             guard request.count <= 8192, error == nil else { connection.cancel(); return }
-            if request.range(of: Data("\r\n\r\n".utf8)) != nil {
+            if let separator = request.range(of: Data("\r\n\r\n".utf8)) {
                 let route = PhoneShareHTTP.route(request, token: token)
                 switch route {
                 case .page: self.respond(connection, status: "200 OK", type: "text/html; charset=utf-8", body: Data(PhoneShareHTTP.page.utf8))
                 case .frame:
                     if let frame = self.frame, Date().timeIntervalSince(self.frameTime) < 5 {
-                        self.respond(connection, status: "200 OK", type: "image/jpeg", body: frame)
+                        let headers = self.controller?.headers(for: frame, epoch: PhoneControl.currentEpoch) ?? ""
+                        self.respond(connection, status: "200 OK", type: "image/jpeg", body: frame, extraHeaders: headers)
                     } else { self.respond(connection, status: "503 Service Unavailable", type: "text/plain", body: Data("Waiting for screen capture".utf8)) }
+                case .control(let length):
+                    let body = request[separator.upperBound...]
+                    if body.count < length && !done {
+                        self.receive(connection, token: token, data: request)
+                    } else if body.count == length {
+                        self.handleControl(connection, packet: Data(body))
+                    } else {
+                        self.respond(connection, status: "400 Bad Request", type: "text/plain", body: Data())
+                    }
                 case .missing: self.respond(connection, status: "404 Not Found", type: "text/plain", body: Data("Sharing link expired or incorrect".utf8))
                 }
             } else if done { connection.cancel() }
@@ -171,8 +216,23 @@ final class PhoneShare: NSObject, SCStreamOutput, SCStreamDelegate, @unchecked S
         }
     }
 
-    private func respond(_ connection: NWConnection, status: String, type: String, body: Data) {
-        let headers = "HTTP/1.1 \(status)\r\nContent-Type: \(type)\r\nContent-Length: \(body.count)\r\nCache-Control: no-store\r\nReferrer-Policy: no-referrer\r\nX-Content-Type-Options: nosniff\r\nContent-Security-Policy: default-src 'none'; img-src 'self' blob:; connect-src 'self'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; frame-ancestors 'none'\r\nConnection: close\r\n\r\n"
+    private func handleControl(_ connection: NWConnection, packet: Data) {
+        let status: String
+        if let command = controller?.accept(packet, epoch: PhoneControl.currentEpoch), let input {
+            if frame != nil && Date().timeIntervalSince(frameTime) < 5 && input.perform(command) {
+                status = "204 No Content"
+            } else {
+                input.releaseDrag()
+                status = "409 Conflict"
+            }
+        } else {
+            status = "403 Forbidden"
+        }
+        respond(connection, status: status, type: "text/plain", body: Data())
+    }
+
+    private func respond(_ connection: NWConnection, status: String, type: String, body: Data, extraHeaders: String = "") {
+        let headers = "HTTP/1.1 \(status)\r\nContent-Type: \(type)\r\nContent-Length: \(body.count)\r\nCache-Control: no-store\r\n\(extraHeaders)Referrer-Policy: no-referrer\r\nX-Content-Type-Options: nosniff\r\nContent-Security-Policy: default-src 'none'; img-src 'self' blob:; connect-src 'self'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; frame-ancestors 'none'\r\nConnection: close\r\n\r\n"
         connection.send(content: Data(headers.utf8) + body, completion: .contentProcessed { _ in connection.cancel() })
     }
 
@@ -198,7 +258,13 @@ final class PhoneShare: NSObject, SCStreamOutput, SCStreamDelegate, @unchecked S
     }
 
     private enum ShareError: LocalizedError {
-        case noDisplay
-        var errorDescription: String? { "No display is available to share." }
+        case noDisplay, noPairingWindow
+
+        var errorDescription: String? {
+            switch self {
+            case .noDisplay: "No display is available to share."
+            case .noPairingWindow: "Keep the sharing window open while starting remote control, then try again."
+            }
+        }
     }
 }

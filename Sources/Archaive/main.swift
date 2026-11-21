@@ -24,6 +24,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSWind
     private let brightness = DisplayBrightness()
     private let phoneShare = PhoneShare()
     private var phoneShareWindow: NSWindow?
+    private weak var controlPairingWindow: NSWindow?
     private let shareWindowState = ShareWindowState()
     private var hotspotWindow: NSWindow?
     private var networkStatus = "Checking Wi-Fi…"
@@ -201,9 +202,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSWind
         NSApp.activate(ignoringOtherApps: true)
         if let window = phoneShareWindow { window.makeKeyAndOrderFront(nil); return }
         let view = ScreenSharingView(state: shareWindowState,
-                                     toggleShare: { [weak self] in self?.togglePhoneShare() },
+                                     toggleShare: { [weak self] allowControl in self?.togglePhoneShare(allowControl: allowControl) },
                                      copyLink: { [weak self] in self?.copyPhoneShareLink() })
-        let window = connectionWindow(title: "Share Screen to Phone", size: NSSize(width: 530, height: 435), view: view)
+        let window = connectionWindow(title: "Share Screen to Phone", size: NSSize(width: 530, height: 500), view: view)
         phoneShareWindow = window
         updatePhoneShare()
         window.makeKeyAndOrderFront(nil)
@@ -231,10 +232,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSWind
     private func updatePhoneShare() {
         if shareWindowState.links != phoneShare.links {
             shareWindowState.links = phoneShare.links
-            shareWindowState.qr = phoneShare.links.first.flatMap(sharingCode)
+            let showCode = !phoneShare.allowsControl ||
+                (controlPairingWindow != nil && controlPairingWindow === phoneShareWindow)
+            shareWindowState.qr = showCode ? phoneShare.pairingLink.flatMap(sharingCode) : nil
         }
         shareWindowState.active = phoneShare.active
         shareWindowState.starting = phoneShare.starting
+        shareWindowState.allowsControl = phoneShare.allowsControl
         rebuildMenu()
     }
 
@@ -247,9 +251,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSWind
         return NSImage(cgImage: image, size: NSSize(width: image.width, height: image.height))
     }
 
-    @objc private func togglePhoneShare() {
+    private func togglePhoneShare(allowControl: Bool) {
         if phoneShare.active || phoneShare.starting { phoneShare.stop() }
-        else { phoneShare.start() }
+        else {
+            controlPairingWindow = allowControl ? phoneShareWindow : nil
+            let windowID = controlPairingWindow.flatMap { CGWindowID(exactly: $0.windowNumber) }
+            phoneShare.start(allowControl: allowControl, pairingWindowID: windowID)
+        }
     }
 
     @objc private func stopPhoneShare() { phoneShare.stop() }
@@ -504,6 +512,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSWind
                 hotspotWindow = nil
                 onboarding.setupFinished(saved: false)
             } else if closing === phoneShareWindow {
+                if closing === controlPairingWindow {
+                    shareWindowState.qr = nil
+                    controlPairingWindow = nil
+                }
                 phoneShareWindow = nil
             }
         }

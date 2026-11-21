@@ -2,16 +2,40 @@ import Foundation
 
 // Keep routing independent of capture so session isolation can be tested without permissions.
 enum PhoneShareHTTP {
-    enum Route { case page, frame, missing }
+    enum Route: Equatable { case page, frame, control(length: Int), missing }
 
     static func route(_ request: Data, token: String) -> Route {
-        guard let text = String(data: request, encoding: .utf8),
-              let line = text.components(separatedBy: "\r\n").first else { return .missing }
-        let parts = line.split(separator: " ", omittingEmptySubsequences: false)
-        guard parts.count == 3, parts[0] == "GET", parts[2] == "HTTP/1.1" || parts[2] == "HTTP/1.0" else { return .missing }
-        if parts[1] == "/\(token)/" { return .page }
-        if parts[1] == "/\(token)/frame" { return .frame }
-        return .missing
+        let header = request.range(of: Data("\r\n\r\n".utf8)).map { request[..<$0.lowerBound] } ?? request
+        guard let text = String(data: header, encoding: .utf8) else { return .missing }
+        let lines = text.components(separatedBy: "\r\n")
+        let parts = lines[0].split(separator: " ", omittingEmptySubsequences: false)
+        guard parts.count == 3, parts[2] == "HTTP/1.1" || parts[2] == "HTTP/1.0" else { return .missing }
+        if parts[0] == "GET" {
+            if parts[1] == "/\(token)/" { return .page }
+            if parts[1] == "/\(token)/frame" { return .frame }
+        }
+        guard parts[0] == "POST", parts[1] == "/\(token)/control" else { return .missing }
+
+        var contentLength: Int?
+        var binary = false
+        for line in lines.dropFirst() {
+            let pair = line.split(separator: ":", maxSplits: 1, omittingEmptySubsequences: false)
+            guard pair.count == 2 else { return .missing }
+            let value = pair[1].trimmingCharacters(in: .whitespaces)
+            switch pair[0].trimmingCharacters(in: .whitespaces).lowercased() {
+            case "transfer-encoding": return .missing
+            case "content-length":
+                guard contentLength == nil, !value.isEmpty, value.utf8.allSatisfy({ (48...57).contains($0) }),
+                      let length = Int(value), (1...PhoneControl.maximumPacketSize).contains(length) else { return .missing }
+                contentLength = length
+            case "content-type":
+                guard !binary, value.lowercased() == "application/octet-stream" else { return .missing }
+                binary = true
+            default: break
+            }
+        }
+        guard binary, let contentLength else { return .missing }
+        return .control(length: contentLength)
     }
 
     static let page = #"""

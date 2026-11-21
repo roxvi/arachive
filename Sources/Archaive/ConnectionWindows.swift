@@ -97,22 +97,24 @@ final class ShareWindowState: ObservableObject {
     @Published var qr: NSImage?
     @Published var active = false
     @Published var starting = false
+    @Published var allowsControl = false
 }
 
 struct ScreenSharingView: View {
     @ObservedObject var state: ShareWindowState
-    let toggleShare: () -> Void
+    @State private var allowControl = false
+    let toggleShare: (Bool) -> Void
     let copyLink: () -> Void
 
     private var status: String {
         if state.starting { return "Waiting for screen-capture permission…" }
         if !state.active { return "Start sharing to create a session link." }
         if state.links.isEmpty { return "No local IPv4 address. Connect to Wi-Fi, then stop and restart sharing." }
-        return "Sharing is active"
+        return state.allowsControl ? "Sharing with remote control" : "Sharing is active"
     }
 
     var body: some View {
-        ConnectionWindow(title: "Share Screen to Phone", subtitle: "Connect both devices to the same Wi-Fi or hotspot. Scan the code in the Archaive iPhone app, or open a sharing link in your phone’s browser.") {
+        ConnectionWindow(title: "Share Screen to Phone", subtitle: "Connect both devices to the same Wi-Fi or hotspot. Scan the code with Archaive on your iPhone, or copy the view link for a browser.") {
             HStack(alignment: .top, spacing: 20) {
                 VStack(alignment: .leading, spacing: 8) {
                     Text(status).font(.headline).accessibilityAddTraits(.updatesFrequently)
@@ -130,15 +132,32 @@ struct ScreenSharingView: View {
             }
             .padding(18)
             .modifier(FogPanel())
-            Text("View only. Anyone with the link can see your screen over this unencrypted local connection. Use a trusted network. Locking your Mac stops sharing.")
-                .font(.callout).foregroundStyle(.secondary)
+            VStack(alignment: .leading, spacing: 7) {
+                Toggle("Allow remote control", isOn: $allowControl)
+                    .toggleStyle(.switch)
+                    .disabled(state.active || state.starting)
+                Text((state.active || state.starting ? state.allowsControl : allowControl)
+                     ? "The QR code grants mouse and keyboard access. Scan it only with a trusted phone. macOS requires Accessibility permission."
+                     : "Your phone can see your screen. Anyone with the view link can watch over the local network.")
+                if state.active && state.allowsControl && state.qr == nil {
+                    Text("Restart sharing to display a fresh control QR code.")
+                }
+                Text("Use a trusted network. The screen stream is unencrypted. Locking your Mac stops sharing.")
+            }
+            .font(.callout)
+            .foregroundStyle(.secondary)
+            .onChange(of: state.active) { active in
+                if !active { allowControl = false }
+            }
             HStack {
-                Button("Copy Link", action: copyLink)
+                Button("Copy View Link", action: copyLink)
                     .buttonStyle(InkButton(prominent: false))
                     .disabled(state.links.isEmpty)
                 Spacer()
-                Button(state.active || state.starting ? "Stop Sharing" : "Start Sharing", action: toggleShare)
-                    .buttonStyle(InkButton())
+                Button(state.active || state.starting ? "Stop Sharing" : "Start Sharing") {
+                    toggleShare(allowControl)
+                }
+                .buttonStyle(InkButton())
             }
         }
     }

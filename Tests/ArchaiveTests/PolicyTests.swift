@@ -28,10 +28,11 @@ struct PolicyTests {
         tests.testShortcutResponderRouting()
         tests.testPhoneSharingSessionIsolation()
         tests.testIPhonePairingAddresses()
+        try! tests.testPhoneControlAuthentication()
         tests.testFocusPolicy()
         try! tests.testFocusPauseLifecycle()
         try! tests.testFocusFollowsKeepAwake()
-        print("17 regression tests passed")
+        print("18 regression tests passed")
     }
     func testFocusPolicy() {
         func process(_ pid: Int32, _ parent: Int32 = 1, _ app: String? = nil, born: UInt64? = nil) -> FocusProcess {
@@ -196,6 +197,15 @@ struct PolicyTests {
             XCTAssertNil(ShareAddress("http://\(host):43210/\(token)/"))
         }
         let base = "http://192.168.1.20:43210/\(token)/"
+        let key = PhoneControl.PairingKey()
+        let controlLink = "archaive-control" + base.dropFirst(4) + "#" + key.code
+        let pairing = ShareAddress(controlLink)
+        XCTAssertEqual(pairing?.controlKey, key)
+        XCTAssertEqual(pairing?.frameURL.absoluteString, base + "frame")
+        XCTAssertEqual(pairing?.controlURL.absoluteString, base + "control")
+        XCTAssertNil(ShareAddress(base)?.controlKey)
+        XCTAssertNil(ShareAddress(controlLink + "="))
+        XCTAssertNil(ShareAddress(controlLink.replacingOccurrences(of: "192.168.1.20", with: "8.8.8.8")))
         for invalid in [base + "frame", base + "?query=1", base + "#fragment",
                         base.replacingOccurrences(of: "http:", with: "https:"),
                         base.replacingOccurrences(of: token, with: "wrong"),
@@ -221,6 +231,48 @@ struct PolicyTests {
         XCTAssertEqual(route("GET  /current/frame HTTP/1.1\r\n\r\n"), .missing)
         XCTAssertEqual(route("GET /current/frame HTTP/9.9\r\n\r\n"), .missing)
         XCTAssertEqual(PhoneShareHTTP.route(Data([0xff]), token: "current"), .missing)
+        let post = "POST /current/control HTTP/1.1\r\nContent-Type: application/octet-stream\r\n"
+        let length = "Content-Length: 28\r\n"
+        let header = Data((post + length + "\r\n").utf8)
+        let binaryBody = Data(repeating: 0xff, count: 28)
+        XCTAssertEqual(PhoneShareHTTP.route(header + binaryBody, token: "current"), .control(length: 28))
+        XCTAssertEqual(PhoneShareHTTP.route(header + binaryBody, token: "different"), .missing)
+        XCTAssertEqual(route("GET /current/control HTTP/1.1\r\n\r\n"), .missing)
+        XCTAssertEqual(route(post + length + length + "\r\n"), .missing)
+        XCTAssertEqual(route(post + "Content-Length: 4097\r\n\r\n"), .missing)
+        XCTAssertEqual(route(post + length + "Transfer-Encoding: chunked\r\n\r\n"), .missing)
+        XCTAssertEqual(route(post + "\r\n"), .missing)
+    }
+
+    func testPhoneControlAuthentication() throws {
+        let key = PhoneControl.PairingKey()
+        var receiver = PhoneControl.Receiver(key: key)
+        let point = PhoneControl.Point(x: 0.5, y: 1)
+        let command = PhoneControl.Command.click(point)
+        let first = try PhoneControl.seal(command, sequence: 1, epoch: 10, key: key)
+        let forged = try PhoneControl.seal(.key(.delete), sequence: 2, epoch: 10, key: .init())
+        let invalid = try PhoneControl.seal(.click(.init(x: -1, y: 0)), sequence: 2, epoch: 10, key: key)
+        XCTAssertNil(receiver.accept(forged, epoch: 10))
+        XCTAssertNil(receiver.accept(invalid, epoch: 10))
+        XCTAssertNil(receiver.accept(first, epoch: 9))
+        XCTAssertNil(receiver.accept(first, epoch: 12))
+        XCTAssertNil(receiver.accept(first + Data([1]), epoch: 10))
+        XCTAssertEqual(receiver.sequence, 0)
+        XCTAssertEqual(receiver.accept(first, epoch: 11), command)
+        XCTAssertNil(receiver.accept(first, epoch: 11))
+        let text = PhoneControl.Command.type("Archaive 👋")
+        let second = try PhoneControl.seal(text, sequence: 2, epoch: 11, key: key)
+        XCTAssertEqual(receiver.accept(second, epoch: 11), text)
+
+        let frame = Data([1, 2, 3])
+        let headers = receiver.headers(for: frame, epoch: 11)
+        let proofLine = headers.components(separatedBy: "\r\n").first { $0.hasPrefix(PhoneControl.proofHeader) }!
+        let proof = String(proofLine.dropFirst(PhoneControl.proofHeader.count + 2))
+        XCTAssertTrue(PhoneControl.verifyFrame(frame, proof: proof, sequence: 2, epoch: 11, key: key))
+        XCTAssertFalse(PhoneControl.verifyFrame(frame + Data([4]), proof: proof, sequence: 2, epoch: 11, key: key))
+        XCTAssertFalse(PhoneControl.verifyFrame(frame, proof: proof, sequence: 3, epoch: 11, key: key))
+        XCTAssertFalse(PhoneControl.verifyFrame(frame, proof: proof, sequence: 2, epoch: 12, key: key))
+        XCTAssertFalse(PhoneControl.verifyFrame(frame, proof: proof, sequence: 2, epoch: 11, key: .init()))
     }
 
     func testShortcutRecordingLifecycle() {

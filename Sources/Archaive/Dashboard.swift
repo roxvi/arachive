@@ -357,7 +357,7 @@ struct Dashboard: View {
                 }
             }
             rule
-            setting("Share Screen to Phone", status.startingShare ? "Waiting for screen-capture permission…" : status.sharing ? "Screen sharing is active." : "Start a view-only session on your local network.") {
+            setting("Share Screen to Phone", status.startingShare ? "Waiting for screen-capture permission…" : status.sharing ? "Screen sharing is active." : "View or control your Mac from your iPhone.") {
                 HStack {
                     if status.sharing || status.startingShare { Button("Stop Sharing", action: actions.stopShare).buttonStyle(InkButton(prominent: false)) }
                     Button(status.sharing ? "Show QR Code…" : "Open Sharing…", action: actions.configureShare).buttonStyle(InkButton())
