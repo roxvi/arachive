@@ -3,6 +3,9 @@ import QuartzCore
 
 /// Draws both states from the same geometry so the crescent fills into a sun.
 final class StatusIconAnimator {
+    static let itemWidth: CGFloat = 16
+    private static let imageSize: CGFloat = 14
+
     private var timer: Timer?
     private var target: Bool?
     private var progress: CGFloat = 0
@@ -38,7 +41,12 @@ final class StatusIconAnimator {
     }
 
     private static func image(progress: CGFloat, description: String) -> NSImage {
-        let image = NSImage(size: NSSize(width: 18, height: 18), flipped: false) { _ in
+        let image = NSImage(size: NSSize(width: imageSize, height: imageSize), flipped: false) { _ in
+            NSGraphicsContext.saveGraphicsState()
+            defer { NSGraphicsContext.restoreGraphicsState() }
+            let scale = imageSize / 18
+            NSGraphicsContext.current?.cgContext.scaleBy(x: scale, y: scale)
+
             NSColor.black.setFill()
             let radius: CGFloat = 6 - progress * 1.5
             NSBezierPath(ovalIn: NSRect(x: 9 - radius, y: 9 - radius,

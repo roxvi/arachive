@@ -48,7 +48,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSWind
         NSWorkspace.shared.notificationCenter.addObserver(self, selector: #selector(stopPhoneShare), name: NSWorkspace.sessionDidResignActiveNotification, object: nil)
         brightness.rememberDisplays()
         defaults.register(defaults: ["dimOnClose": true])
-        statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
+        statusItem = NSStatusBar.system.statusItem(withLength: StatusIconAnimator.itemWidth)
         menu = NSMenu()
         menu.delegate = self
         statusItem.menu = menu
