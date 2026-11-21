@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8" standalone="yes"?><!-- sparkle-sign-warning:
+IMPORTANT: This file was signed by Sparkle. Any modifications to this file requires re-signing this file with generate_appcast or sign_update! The signed signature will be embedded at the end of this file.
+--><rss xmlns:sparkle="http://www.andymatuschak.org/xml-namespaces/sparkle" version="2.0">
+  <channel>
+    <title>Archaive Updates</title>
+    <link>https://github.com/roxvi/arachive/releases</link>
+    <description>Stable releases of Archaive for Apple Silicon</description>
+  </channel>
+</rss><!-- sparkle-signatures:
+edSignature: nGhvt/9RzMnysb90Tk8HFhVSpb3iAxRiSBkR9kPf1qgNryeSN5idBkbzPKGoQQKI3Cnk7ctQt9D7Cg0aBEPxDA==
+length: 583
+-->

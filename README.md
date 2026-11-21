@@ -2,7 +2,7 @@
 
 # Archaive
 
-A native macOS app for pausing background apps during Focus, keeping your Mac awake, and reconnecting to your phone’s hotspot. Requires macOS 13 or later and Xcode Command Line Tools to build. No third-party runtime dependencies.
+A native macOS app for pausing background apps during Focus, keeping your Mac awake, and reconnecting to your phone’s hotspot. Requires macOS 13 or later and Xcode Command Line Tools to build. Sparkle is bundled for app updates.
 
 ## Install
 
@@ -15,6 +15,8 @@ brew install --cask roxvi/tap/archaive
 ```
 
 The app is ad-hoc signed, not Apple-notarized. If macOS blocks the first launch and you trust the source, use Apple's per-app **Open Anyway** approval in System Settings → Privacy & Security. Quit Archaive before upgrading so it can resume paused apps and restore sleep and brightness.
+
+Archaive 1.6.0 and later automatically check for updates. Use **Check for Updates…** in the Archaive menu or from its menu-bar icon to check on demand. The update dialog lets you opt in to automatic installation. Update checks and downloads use public URLs and require no GitHub login.
 
 The canonical repository is **roxvi/arachive**; the app name is **Archaive**. Source history from `summrs-private` has been merged here, and the original `summrs` release remains available.
 
@@ -35,6 +37,8 @@ python3 scripts/package-dmg.py
 ```
 
 Packaging requires Python 3 and downloads pinned `dmgbuild` dependencies into an isolated `.build/dmg-venv`. It generates `dist/Archaive-<version>-arm64.dmg` and its SHA-256 file. Update `VERSION` before making a new installer; the packager refuses to overwrite existing installers. No packaging dependencies ship in the app.
+
+To publish a Sparkle update, run `./scripts/sign-update.sh` after packaging on a Mac with the `roxvi.arachive` signing key in Keychain. Publish the DMG and checksum on the public GitHub release tagged `v<version>`, then copy the generated `dist/appcast.xml` to `updates/appcast.xml` and push it to `main`. The release asset and feed both carry signatures. Keep the private key in Keychain and regenerate the feed after any changes to it.
 
 Closing the last Archaive window removes its Dock icon and leaves the app running in the menu bar. Choose **Open Archaive** there to bring back the window and Dock icon.
 

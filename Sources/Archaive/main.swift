@@ -1,5 +1,6 @@
 import AppKit
 import CoreImage
+import Sparkle
 import SwiftUI
 
 final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSWindowDelegate {
@@ -29,6 +30,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSWind
     private var pendingOnboardingMode: Bool?
     private var shortcutOK = false
     private var menu: NSMenu!
+    private lazy var updater: SPUStandardUpdaterController? = {
+        guard Bundle.main.object(forInfoDictionaryKey: "SUFeedURL") != nil else { return nil }
+        return SPUStandardUpdaterController(startingUpdater: false, updaterDelegate: nil, userDriverDelegate: nil)
+    }()
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         // Prevent two app instances from competing over the system-wide sleep setting.
@@ -85,6 +90,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSWind
             showAlert("Unfinished awake session", "Archaive previously changed your sleep setting. Open Keep Awake and choose Restore to recover it. Until then, your Mac may stay awake with the lid closed.")
         }
         showDashboard()
+        updater?.startUpdater()
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) { [weak self] in
             guard let self, self.dashboardWindow?.isVisible == true,
                   !self.defaults.bool(forKey: "hasCompletedOnboarding") else { return }
@@ -178,7 +184,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSWind
         item(disabled ? "Allow Sleep" : "Keep Awake", #selector(toggleSleep)).isEnabled = !busy && known
         if phoneShare.active || phoneShare.starting { item("Stop Phone Sharing", #selector(stopPhoneShare)) }
         menu.addItem(.separator())
+        addUpdateItem(to: menu)
         item("Quit Archaive", #selector(quit)).isEnabled = !busy
+    }
+
+    private func addUpdateItem(to menu: NSMenu) {
+        guard let updater else { return }
+        let item = menu.addItem(withTitle: "Check for Updates…",
+                                action: #selector(SPUStandardUpdaterController.checkForUpdates(_:)), keyEquivalent: "")
+        item.target = updater
+        item.isEnabled = updater.updater.canCheckForUpdates
     }
 
     @objc private func showPhoneShare() {
@@ -417,6 +432,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSWind
         appRoot.submenu = NSMenu(title: "Archaive")
         let aboutItem = appRoot.submenu!.addItem(withTitle: "About Archaive", action: #selector(about), keyEquivalent: "")
         aboutItem.target = self
+        addUpdateItem(to: appRoot.submenu!)
         appRoot.submenu!.addItem(.separator())
         let hideItem = appRoot.submenu!.addItem(withTitle: "Hide Archaive", action: #selector(NSApplication.hide(_:)), keyEquivalent: "h")
         hideItem.target = NSApp
