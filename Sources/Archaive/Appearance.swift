@@ -10,7 +10,7 @@ enum AppTheme: String, CaseIterable, Identifiable {
 
     var name: String {
         switch self {
-        case .monochrome: "Black & White"
+        case .monochrome: "Noir"
         case .sunset: "Sunset"
         case .pink: "P!nk"
         }
