@@ -3,7 +3,6 @@ import SwiftUI
 enum DashboardPage: String, CaseIterable, Identifiable {
     case power = "Keep Awake"
     case connection = "Connections"
-    case examples = "Examples"
 
     var id: Self { self }
 
@@ -11,7 +10,6 @@ enum DashboardPage: String, CaseIterable, Identifiable {
         switch self {
         case .power: return "sun.max"
         case .connection: return "personalhotspot"
-        case .examples: return "sparkles"
         }
     }
 }
@@ -80,8 +78,6 @@ struct Dashboard: View {
                     switch state.page {
                     case .power: powerPage
                     case .connection: connectionsPage
-                    case .examples:
-                        ExamplesPage(shortcut: status.shortcut)
                     }
                 }
                 .frame(maxWidth: 1020)
@@ -144,7 +140,6 @@ struct Dashboard: View {
         switch state.page {
         case .power: "Control sleep, the lid display, and which apps stay active."
         case .connection: "Stay online with hotspot fallback or share your Mac screen to a phone."
-        case .examples: "Try six workflows in a preview. Your Mac’s settings stay as they are."
         }
     }
 
